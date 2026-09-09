@@ -2,6 +2,60 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.11 — 2026-09-09 · **우리 이름을 우리 리포트가 잘못 불렀다**
+
+두 결함 모두 감지가 아니라 **감지 결과를 사람에게 보여주는 자리**에 있었다.
+탐지 로직 · 동결 파라미터 · 낭비 금액 · 낭비율은 이 릴리스에서 하나도 바뀌지 않는다.
+
+### 수정 — 리포트가 발동하지 않은 감지기의 이름을 찍었다
+
+`pingpong` 라벨이 **모든 llm/llm 쌍**에 붙고 있었다. 감지기는 그보다 좁다 —
+`find_pingpong_candidates` 는 서로 다른 두 노드의 `A→B→A→B` 창을 요구한다. 반면
+`find_repeat_candidates` 는 **같은 노드**의 두 호출을 묶고, 그렇게 나온 llm 쌍이
+리포트 제목에 `pingpong` 으로 찍혔다. 바로 아래 Snippets 블록은 같은 발견을
+`repeat` 이라고 불렀다. **한 페이지, 한 발견, 두 이름.**
+
+단어 하나의 문제가 아니었다. `find_pingpong_candidates` 는 *"합성 트레이스 밖에서
+발동한 적이 없다"* 는 이유로 낭비율 지표에서 제외돼 있고(`WASTE_RATE_METRIC_PREREG`
+"Explicitly EXCLUDED"), README §Scope 도 같은 말을 한다. **안 냈다고 적어둔 이름을
+리포트가 찍는 것은 우리가 우리 규율에 대해 하는 주장의 반례다.**
+
+이제 라벨은 **pingpong 감지기가 실제로 낸 쌍**에만 붙는다. 진짜 교대는 그대로
+`pingpong`, 같은 노드 반복은 `repeat`, 도구 쌍은 그대로 `requery`.
+
+### 수정 — 끝낼 수 없는 트레이스가 망가진 설치처럼 보였다
+
+`pip install boxdawn` (extra 없음) 은 반복된 작업이 전부 도구 호출인 트레이스를
+끝까지 분석한다. **도구가 아닌** span 이 반복된 트레이스에서는 `semantic.py` 에서
+파이썬 트레이스백을 내며 죽고 리포트를 안 남겼다.
+
+φ 게이트는 `llm` 이 아니라 **`span_kind != "tool"`** 에서 탄다. 그래서 이 저장소의
+OpenInference 픽스처 **3개 전부**가 기본 설치에서 죽었다 — 깨끗한 venv · torch 없음 ·
+빈 임베딩 캐시로 실측(2026-09-09). 같은 조건에서 실제 Claude Code 세션, 외부 CC
+트레이스, `examples/sample_otel_trace.json` 은 정상 종료했다.
+
+모델은 **첫 비-tool 쌍에서** 로드되지 임포트 시점이 아니라, 세 줄 위의 임포트 가드가
+이걸 볼 수 없었다. 그리고 **자기 트레이스에 비-tool 반복이 있는지 미리 아는 방법이
+사용자에게 없다.** README 가 적어둔 범위(*"도구 계층의 중복"*)는 옳았다. 틀린 것은
+**실패의 모양**이다.
+
+이제 어느 트레이스가 왜 이 설치로 안 끝나는지 말하고 종료한다:
+
+```
+Error: this trace repeats a step that is not a tool call. Comparing those two
+outputs needs the semantic gate, and the base install does not carry it. ...
+  pip install 'boxdawn[semantic]'
+```
+
+🔴 **그 트레이스가 분석되는 것은 아니다.** 무엇을 설치해야 하는지 알려주고 멈춘다.
+
+### 문서
+
+- PyPI 페이지 상단 배지가 `3 코퍼스 · 16,864 sessions` 로 남아 있었다. 헤더는
+  2026-08-30 에 `17,881 traces · 4 코퍼스` 로 올라갔고 그 커밋 메시지에 구성까지
+  적혀 있었는데(`28 + 6,780 + 10,056 + 1,017`), 두 줄 위의 배지를 안 건드렸다.
+  **독자가 먼저 보는 쪽이 낡아 있었다.**
+
 ## 0.5.10 — 2026-09-04 · **Mac 과 Linux 에서는 자동 수집이 아예 없었다**
 
 `boxdawn submit --install` 은 Windows 에서만 실제로 등록됐다. macOS·Linux 에서는
