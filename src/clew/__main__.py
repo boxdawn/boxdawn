@@ -239,8 +239,26 @@ def _analyze(args: argparse.Namespace) -> int:
         return 1
 
     embedder = Embedder(model_name=_MODEL, revision=_REV, cache_dir=_CACHE_DIR)
-    cr = cascade(trace, embedder, n=_N, phi=_PHI)
-    details = _build_details(trace, cr, embedder) if cr.wasteful else []
+    try:
+        cr = cascade(trace, embedder, n=_N, phi=_PHI)
+        details = _build_details(trace, cr, embedder) if cr.wasteful else []
+    except ImportError as e:
+        # The model loads on the first non-tool pair, not at import, so this
+        # cannot be folded into the import guard above. A base install analyses
+        # a tool-only trace to completion and fails only on a trace that has a
+        # repeated non-tool span in it -- and which traces those are is not
+        # something the person running it can know beforehand. Without this the
+        # failure arrives as a traceback out of `semantic.py`, which reads like
+        # a broken install rather than a trace this install cannot finish.
+        print(
+            "Error: this trace repeats a step that is not a tool call. Comparing "
+            "those two outputs needs the semantic gate, and the base install does "
+            "not carry it. A trace whose repeated work is all tool calls (Claude "
+            "Code, Toolathlon, RedundancyBench) needs no extra install.\n"
+            f"{e}",
+            file=sys.stderr,
+        )
+        return 1
 
     # Amplification estimate (only meaningful when CC metadata is present).
     amp = None
