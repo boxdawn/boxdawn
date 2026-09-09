@@ -3,7 +3,8 @@
 Extracts:
 - file_path (or command) from candidate.input_text
 - origin/candidate turn from trace.metadata["cc_turn_index"]
-- pattern_label: "requery" when tool + input matches; else "repeat"
+- pattern_label: "requery" when tool + input matches, "pingpong" when the
+  pingpong detector produced the pair, else "repeat"
 - modified_in_between: any Write/Edit-family span between origin and candidate
   targeting the same file_path (False when file_path unavailable — see uncertain flag)
 """
@@ -14,7 +15,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from clew.detect.structural import find_candidates
+from clew.detect.structural import find_candidates, find_pingpong_candidates
 from clew.model import Span, Trace
 from clew.report._model import WasteDetail
 
@@ -495,11 +496,31 @@ def _command_of(obj: Any) -> str | None:
     return v if isinstance(v, str) and v else None
 
 
-def _classify_pattern(origin: Span, cand: Span) -> str:
+def _classify_pattern(
+    origin: Span, cand: Span, pingpong_pairs: set[tuple[str, str]]
+) -> str:
+    """Name the pair the way the detector that produced it is named.
+
+    `pingpong` used to be given to any llm/llm pair, which is wider than the
+    detector: `find_repeat_candidates` groups two calls of the *same* node, and
+    two such llm spans came out of the report headed `pingpong` while the
+    Snippets block below called the same finding `repeat`. The pingpong
+    detector had not fired at all.
+
+    That mattered beyond a wrong word. `find_pingpong_candidates` is excluded
+    from the waste-rate metric on the grounds that it has never fired outside
+    synthetic traces (WASTE_RATE_METRIC_PREREG "Explicitly EXCLUDED"), and a
+    report printing the name anyway is evidence against a claim we make about
+    our own discipline.
+
+    Membership in `pingpong_pairs` is the whole test: the detector requires all
+    four spans of the A->B->A->B window to be llm spans, so a kind check here
+    would be a second, weaker copy of a rule that already holds.
+    """
     if origin.span_kind == "tool" and cand.span_kind == "tool":
         if origin.input_text.strip().casefold() == cand.input_text.strip().casefold():
             return "requery"
-    if origin.span_kind == "llm" and cand.span_kind == "llm":
+    if (origin.span_id, cand.span_id) in pingpong_pairs:
         return "pingpong"
     return "repeat"
 
@@ -797,6 +818,13 @@ def enrich(
     error_ids: set[str] = set(trace.metadata.get("error_span_ids") or [])
     out: list[EnrichedDetail] = []
     n_skipped_error = 0
+    # Which pairs the pingpong detector actually produced. Recomputed rather
+    # than threaded through the cascade: `find_candidates` merges the two
+    # detectors into one deduplicated list and drops which side a pair came
+    # from, and this scan is a linear walk with no embedding in it.
+    pingpong_pairs = {
+        (o.span_id, c.span_id) for o, c in find_pingpong_candidates(trace)
+    }
     for wd in details:
         o, c = wd.origin, wd.candidate
         if o.span_id in error_ids or c.span_id in error_ids:
@@ -805,7 +833,7 @@ def enrich(
         parsed = _parse_input(c.input_text)
         fp = _file_path_of(parsed)
         cmd = _command_of(parsed)
-        pattern = _classify_pattern(o, c)
+        pattern = _classify_pattern(o, c, pingpong_pairs)
         modified = _has_intervening_edit(trace, o, c, fp) if fp else False
         uncertain = fp is None  # cannot verify state change without a file target
         summary = fp or cmd or (c.input_text[:60] + ("…" if len(c.input_text) > 60 else ""))
