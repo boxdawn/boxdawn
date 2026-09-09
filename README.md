@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/python-%E2%89%A53.12-blue)](https://www.python.org/)
 [![CI](https://github.com/boxdawn/boxdawn/actions/workflows/ci.yml/badge.svg)](https://github.com/boxdawn/boxdawn/actions/workflows/ci.yml)
-[![Corpora](https://img.shields.io/badge/corpora-3%20%C2%B7%2016%2C864%20sessions-blueviolet)](#-where-it-stands--measured-not-marketed)
+[![Corpora](https://img.shields.io/badge/corpora-4%20%C2%B7%2017%2C881%20traces-blueviolet)](#-where-it-stands--measured-not-marketed)
 
 </div>
 
