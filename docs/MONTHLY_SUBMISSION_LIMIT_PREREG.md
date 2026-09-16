@@ -20,8 +20,9 @@ Two things have changed since, and both raise the cost of getting it wrong:
 
 1. **It is now the only bound on our own spend.** The verification axis costs
    one Anthropic call per trace, measured at $0.0045 a session
-   (`boxdawn-cloud/app.py:682`), and `judge_allowed` gates on plan only — it
-   does not count volume. Per-trace cost is bounded (one call,
+   (`boxdawn-cloud/app.py:682`), and `judge_allowed` gates on the plan and on
+   an admin switch (`verification_enabled`, `app.py:718`) — **neither of them
+   counts volume**. Per-trace cost is bounded (one call,
    `max_tokens=512`, `VIEW_MAX_CHARS = 120_000`); **the monthly total is not
    bounded by anything.**
 2. **`enterprise` is `null`**, i.e. unlimited (`0017` §1). Enforcing the
