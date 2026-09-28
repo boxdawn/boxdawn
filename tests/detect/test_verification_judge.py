@@ -217,6 +217,60 @@ def test_a_prompt_that_will_not_parse_is_skipped_not_fatal():
     assert "ACTION Edit" in view
 
 
+def test_a_prompt_wrapped_in_a_messages_key_is_read_not_dropped():
+    """The OpenInference adapter stores the request body the framework sent,
+    so a TRAIL trace carries `{"messages": [...]}` where Claude Code carries a
+    bare list. The blocks inside are identical. Measured on 20 TRAIL traces
+    before this: 227 of 248 calls took the dict form and every one was dropped,
+    rendering 18 of the 20 views empty -- which reads as a corpus with nothing
+    in it rather than as a wrapper."""
+    view = render_trace_for_judge(_trace(
+        [_tool("s1", "Edit", {"file_path": "a.py"}, 10)],
+        llm_calls=[{"input_text": json.dumps({"messages": [
+            {"role": "user", "content": [{"type": "text", "text": "Fix the parser"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "Reading it now"}]},
+        ]}), "span_id": "s", "model": "m"}],
+    ))
+
+    assert "USER ASKED: Fix the parser" in view
+    assert "AGENT SAID: Reading it now" in view
+
+
+def test_the_bare_list_a_claude_code_trace_carries_reads_the_same_as_before():
+    """The guard on the change above. Every published precision figure was
+    measured on traces whose `input_text` is a bare list, so the wrapper case
+    must be additive: same input, same view, or the figures move for a reason
+    nobody asked for."""
+    spans = [_tool("s1", "Edit", {"file_path": "a.py"}, 10)]
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "Fix the parser"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "Reading it now"}]},
+    ]
+
+    assert render_trace_for_judge(_trace(spans, llm_calls=[_call(messages)])) == (
+        "USER ASKED: Fix the parser\n"
+        "AGENT SAID: Reading it now\n"
+        "\nACTION Edit  <- changes a file\n"
+        '  input: {"file_path": "a.py"}\n'
+        "  output: ok"
+    )
+
+
+def test_a_wrapper_nobody_has_measured_is_skipped_rather_than_guessed_at():
+    """`{"input": ...}` is not a shape this project has seen in a trace. Taking
+    a guess at it would put text in the view that no measurement covers, and
+    the view is what every verdict is read from."""
+    view = render_trace_for_judge(_trace(
+        [_tool("s1", "Edit", {"file_path": "a.py"}, 10)],
+        llm_calls=[{"input_text": json.dumps({"input": [
+            {"role": "user", "content": [{"type": "text", "text": "invisible"}]}]}),
+            "span_id": "s"}],
+    ))
+
+    assert "invisible" not in view
+    assert "ACTION Edit" in view
+
+
 # ── parsing what comes back ────────────────────────────────────────────────
 
 

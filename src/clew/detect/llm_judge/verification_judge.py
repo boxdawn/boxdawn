@@ -113,6 +113,38 @@ def render_trace_for_judge(trace: Trace) -> str:
     return "\n".join(lines)
 
 
+def _messages_of(raw: object) -> list:
+    """One call's messages, whatever wraps them in `input_text`.
+
+    Claude Code stores a bare list. The OpenInference adapter stores what the
+    instrumented framework sent, and for PatronusAI/TRAIL that is the request
+    body itself -- `{"messages": [...]}` -- with the blocks inside identical in
+    shape. Measured on 20 TRAIL traces: 227 of 248 calls carry the dict form,
+    and the `isinstance(..., list)` test these two readers used to run dropped
+    every one of them. 18 of those 20 views rendered completely empty, which
+    reads as a corpus with nothing to judge rather than as a wrapper.
+
+    Unwrapped here rather than in the adapter on purpose. The same
+    `metadata["llm_calls"][].input_text` is what `context_resend` chunks, and
+    that is the layer every published waste-rate figure sits on; a judge-side
+    reader cannot reach it, and normalising at ingest could.
+
+    Anything else returns [], so a shape nobody has measured is skipped rather
+    than guessed at.
+    """
+    if not isinstance(raw, str):
+        return []
+    try:
+        obj = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, dict) and isinstance(obj.get("messages"), list):
+        return obj["messages"]
+    return []
+
+
 def _user_texts(trace: Trace) -> list[str]:
     """The user's own words, recovered from accumulated prompts, in order.
 
@@ -129,16 +161,7 @@ def _user_texts(trace: Trace) -> list[str]:
     """
     seen: dict[str, None] = {}
     for call in trace.metadata.get("llm_calls") or []:
-        raw = call.get("input_text")
-        if not isinstance(raw, str):
-            continue
-        try:
-            messages = json.loads(raw)
-        except (ValueError, TypeError):
-            continue
-        if not isinstance(messages, list):
-            continue
-        for message in messages:
+        for message in _messages_of(call.get("input_text")):
             if not isinstance(message, dict) or message.get("role") != "user":
                 continue
             content = message.get("content")
@@ -165,16 +188,7 @@ def _assistant_texts(trace: Trace) -> list[str]:
     """
     seen: dict[str, None] = {}
     for call in trace.metadata.get("llm_calls") or []:
-        raw = call.get("input_text")
-        if not isinstance(raw, str):
-            continue
-        try:
-            messages = json.loads(raw)
-        except (ValueError, TypeError):
-            continue
-        if not isinstance(messages, list):
-            continue
-        for message in messages:
+        for message in _messages_of(call.get("input_text")):
             if not isinstance(message, dict) or message.get("role") != "assistant":
                 continue
             content = message.get("content")
