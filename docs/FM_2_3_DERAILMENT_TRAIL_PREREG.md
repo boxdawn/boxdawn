@@ -279,3 +279,84 @@ Counts in §1.3 come from `_trail_target_census.py`; view sizes in §1.4 from
 `_trail_view_shape_probe.py`. All three are uncommitted diagnostics under
 `field_test/diagnostics/`, per the rule that raw probes stay out of the
 repository while the documents that cite them do not.
+
+---
+
+## 11. Amendment (2026-09-28): what the dry-run moved, before any labelling
+
+§8 step 3 ran. No judge was called and no cost was incurred. Seed **23**, quota
+as written (gaia 32, swe_bench 8), drawn on the trace index before any label was
+read. Raw: `_fm23_draw40.RESULTS.json`.
+
+### 11.1 The expectation held
+
+**21 of the 40 are TRAIL-positive** against §6's stated expectation of about 17
+(gaia 20 of 32, swe_bench 1 of 8). For n=40 at the corpus rate the standard
+deviation is about 3.1, so 21 sits near one deviation above and is not a
+material departure. **The sampling frame is not changed.**
+
+Recording the direction matters: the number came back *larger* than predicted.
+§8 step 3 only authorised fixing the frame if it came back materially smaller,
+and it did not, so nothing is touched.
+
+### 11.2 🔴 The frame is 39, not 40 — one trace does not ingest
+
+`swe_bench_011` fails with `duplicate span_id: b14646a5fcac02fd`. This install
+cannot read it, so it cannot be judged and it is not hand-labelled.
+
+- It is **TRAIL-negative**, so the positive class is not reduced by its loss.
+- **P2's floor stays at 8.** It is an absolute count of positives, not a rate,
+  and 8 of 39 is the same evidential bar as 8 of 40.
+- P3/P4 are scored over the 39 that ingest. The denominator is written here so
+  it is not quietly chosen later.
+
+The failure is recorded rather than routed around. A corpus that silently loses
+rows to a parser reports a smaller positive class than it has, and that is the
+direction that kills an axis by accident.
+
+### 11.3 🔴 Three views exceed the cap and will be truncated
+
+§1.4 said none of the measured views passed the frozen 120,000-character cap.
+That was true of the 20 traces measured then and is **false at 40**:
+
+| trace | view chars | TRAIL-positive |
+|---|---:|---|
+| `gaia_037` | 234,928 | **yes** |
+| `gaia_048` | 306,539 | no |
+| `gaia_080` | 249,099 | no |
+
+The cap is applied in `verification_prompts.py:61`, at prompt assembly, not in
+`render_trace_for_judge`. So the judge sees the first 120,000 characters plus a
+truncation notice — **which is exactly what ships**, and the three stay in.
+
+Removing them would measure a judge that does not exist. But a derailment whose
+evidence sits past the cut cannot be found, so:
+
+**P9 (observation, not a gate):** report the judge's verdict on those three
+separately, and whether any hand-labelled positive among them has its evidence
+beyond the cut. If it does, P4's recall is read as a floor rather than an
+estimate.
+
+### 11.4 The length confound runs the other way
+
+§4.2 was written against the risk that flagged traces are simply the longest.
+On TRAIL's own labels the opposite holds: **positive median 17,801 characters,
+negative median 28,926 — negatives are 1.62× longer.**
+
+This does not retire §4.2, which is about *our judge's* flags and cannot be
+scored until the judge runs. It does mean a judge that flags long traces would
+score *against* the labels here, so length-chasing is not a way to pass by
+accident on this corpus. P8 is still reported.
+
+### 11.5 Cost revised
+
+With truncation applied, the 39 sum to roughly 424,000 input tokens: about
+**$0.48** at the shipped rates, against §9's $0.40 planning figure. §9 said the
+recorded cost of the actual run is the number that gets reported; this is still
+a planning figure.
+
+### What is explicitly NOT changed
+
+Predictions P1–P8 stand as written, including P2's floor of 8 and P1's margin
+requirement. The target category, the normalisation rule, the unit, the seed,
+the model and the prompt are untouched. No hand label has been made yet.
