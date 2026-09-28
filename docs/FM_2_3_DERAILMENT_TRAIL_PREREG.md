@@ -360,3 +360,56 @@ a planning figure.
 Predictions P1–P8 stand as written, including P2's floor of 8 and P1's margin
 requirement. The target category, the normalisation rule, the unit, the seed,
 the model and the prompt are untouched. No hand label has been made yet.
+
+---
+
+## 12. Amendment (2026-09-28): the draw was re-run, and it did not move
+
+§8 step 4 stopped before the first label. Building the sheet showed **30 of the
+39 traces with no tool calls at all**, and the raw data said only 2 of them
+were genuinely tool-less: the adapter dropped every OpenInference span without
+`output.value`, which for this sample was **80 of 159 TOOL spans**, all of them
+carrying `input.value`.
+
+That is fixed in `boxdawn/boxdawn#231` (merged, `87514b2`): a TOOL span with no
+recorded result is kept and marked `output_is_absent`; CHAIN and LLM spans are
+still skipped. The reason it had to be fixed before labelling rather than noted
+beside the result: **TRAIL's annotators labelled from the complete trace.** With
+half the actions invisible, a disagreement between their labels and ours could
+not be read — "our judgement differs" and "we could not see it" produce the
+same number.
+
+### 12.1 The draw was re-run on the same seed, and the frame did not move
+
+| | before `#231` | after |
+|---|---:|---:|
+| drawn | 40 | **40** (identical trace ids) |
+| ingest failures | 1 (`swe_bench_011`) | **1, the same one** |
+| TRAIL-positive | 21 | **21, the same traces** |
+| views over the 120,000 cap | 3 | **3, the same three** |
+
+**§11 stands as written.** P2's floor, the 39-trace denominator, the three
+truncated traces named in §11.3, and the cost figure in §11.5 are all unchanged.
+
+🔴 This contradicts what was said when the fix was proposed — that restoring 80
+tool calls would grow the views and push more of them past the cap. It did not.
+The restored spans carry short inputs (median 70 characters, 17,428 across the
+whole sample), so the views grew by a few hundred characters each. Recorded
+because the prediction was made out loud and was wrong.
+
+### 12.2 What did move is the only thing that mattered
+
+| | before | after |
+|---|---:|---:|
+| tool spans in the sample | 79 | **159** |
+| traces with any visible action | **9 of 39** | **38 of 39** |
+
+The one remaining trace has no tool calls in the raw data either.
+
+§11.4's direction also holds: positive median 17,953 characters against
+negative 30,198, so TRAIL-positive traces remain the shorter ones.
+
+### What is explicitly NOT changed
+
+P1–P9 stand. Target category, normalisation, unit, seed, sample, model and
+prompt are untouched. **No hand label has been made.**
