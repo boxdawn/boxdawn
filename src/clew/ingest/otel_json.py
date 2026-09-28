@@ -150,6 +150,12 @@ def ingest_from_otel_json(
 _DURATION_RE = re.compile(r"^PT(?:(\d+)H)?(?:(\d+)M)?(?:([\d.]+)S)?$")
 _SYN_XOR = 0xFEEDFEEDFEEDFEED  # XOR mask for synthetic root span_id
 
+# Stand-in for a TOOL span that recorded no `output.value`. Non-empty because
+# `model.py` forbids an empty tool `output_text`; the span carries
+# `output_is_absent=True` alongside it, which is what detectors read. Worded so
+# a reader of the report can tell it apart from a tool that returned this.
+_ABSENT_TOOL_OUTPUT = "[openinference: no output.value recorded]"
+
 
 def _iso_duration_to_ns(dur: str) -> int:
     """ISO 8601 duration 'PTxHxMxS' -> nanoseconds."""
@@ -249,21 +255,55 @@ def ingest_from_openinference_json(
             f"전체 {len(all_raws)}개 스팬 모두 미계측"
         )
 
-    # OI spans without output.value - present in TRAIL real data; skip with WARNING
+    # OI spans without output.value. A TOOL span is kept and marked absent; any
+    # other kind is still skipped.
+    #
+    # Dropping every kind was measured as removing half the agent's actions:
+    # across a 40-trace TRAIL sample, 159 TOOL spans in the raw data and 80
+    # dropped here, leaving 29 traces that had used tools looking as though
+    # they had used none. All 80 carried `input.value`.
+    #
+    # A tool call's identity is its input -- `structural.py` keys tool spans on
+    # (agent_or_node_id, normalised input) and the judge's view renders the
+    # name and the input -- so a missing result is a missing result, not a
+    # missing call. A CHAIN or LLM span is the other way round: its output IS
+    # its content, and without it there is nothing to carry, so those stay
+    # skipped.
+    #
+    # Kept spans get `output_is_absent`, the sentinel adapters already set for
+    # a vendor's "no output" placeholder (`model.py`, CASCADE_ABSENCE_SENTINEL
+    # _AMENDMENT_PREREG §4.2). cascade's tool branch refuses to match on it, so
+    # restoring these calls cannot manufacture a duplicate pair out of two
+    # spans that merely share an absence.
     no_output = [
         r for r in oi_raws
         if not (r.get("span_attributes", {}).get("output.value") or "").strip()
     ]
-    if no_output:
-        skipped_ids = ", ".join(
-            f"{r['span_name']}({r['span_id']})" for r in no_output
-        )
+    absent_tool_ids = {
+        r["span_id"] for r in no_output
+        if (r.get("span_attributes") or {}).get("openinference.span.kind") == "TOOL"
+    }
+    for r in no_output:
+        if r["span_id"] in absent_tool_ids:
+            r.setdefault("span_attributes", {})["output.value"] = _ABSENT_TOOL_OUTPUT
+    dropped = [r for r in no_output if r["span_id"] not in absent_tool_ids]
+    if absent_tool_ids:
         warnings.warn(
-            f"Format C ({path.name}): output.value 없는 OI 스팬 {len(no_output)}개 건너뜀: "
-            f"{skipped_ids}",
+            f"Format C ({path.name}): output.value 없는 TOOL 스팬 "
+            f"{len(absent_tool_ids)}개를 출력 부재로 표시하고 유지",
             stacklevel=2,
         )
-        oi_raws = [r for r in oi_raws if r not in no_output]
+    if dropped:
+        skipped_ids = ", ".join(
+            f"{r['span_name']}({r['span_id']})" for r in dropped
+        )
+        dropped_set = {r["span_id"] for r in dropped}
+        warnings.warn(
+            f"Format C ({path.name}): output.value 없는 비-TOOL OI 스팬 "
+            f"{len(dropped)}개 건너뜀: {skipped_ids}",
+            stacklevel=2,
+        )
+        oi_raws = [r for r in oi_raws if r["span_id"] not in dropped_set]
     if not oi_raws:
         raise ValueError(f"{path}: output.value 있는 OI 스팬이 하나도 없음")
 
@@ -315,10 +355,19 @@ def ingest_from_openinference_json(
             for r in oi_raws
         ]
 
-    return ingest_otel_spans(
+    trace = ingest_otel_spans(
         shims,
         cost_table=cost_table,
         input_cost_table=input_cost_table,
         output_cost_table=output_cost_table,
         source_tag="openinference_json",
     )
+    # After ingest rather than inside the shim: `output_is_absent` lives on the
+    # Span and the shim only implements the ReadableSpan attributes that
+    # `otel_spans_to_trace` reads. Span ids survive preprocessing unchanged, so
+    # matching on them here reaches the same spans.
+    if absent_tool_ids:
+        for span in trace.spans:
+            if span.span_id in absent_tool_ids:
+                span.output_is_absent = True
+    return trace
