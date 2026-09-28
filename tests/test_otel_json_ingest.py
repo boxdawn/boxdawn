@@ -514,6 +514,47 @@ def test_h6_no_oi_spans_raises(tmp_path):
         ingest_from_openinference_json(_oi_file(tmp_path, [bad]))
 
 
+def test_a_tool_call_with_no_recorded_output_is_still_a_tool_call(tmp_path):
+    """Dropping these removed half the agent's actions. Measured on a 40-trace
+    TRAIL sample: 159 TOOL spans in the raw data, 80 dropped for a missing
+    `output.value`, leaving 29 traces that had used tools looking as though
+    they had used none. All 80 carried `input.value`, which is what identifies
+    a call -- `structural.py` keys tool spans on it and the judge's view
+    renders it."""
+    root = _oi_raw(_OI_S1, None, "agent", "AGENT", "done")
+    tool = _oi_raw(_OI_S2, _OI_S1, "PageDownTool", "TOOL", "", inp="page 3")
+    tool["span_attributes"].pop("output.value")
+    root["child_spans"] = [tool]
+
+    with _warnings_mod.catch_warnings():
+        _warnings_mod.simplefilter("ignore")
+        trace = ingest_from_openinference_json(_oi_file(tmp_path, [root]))
+
+    tools = [s for s in trace.spans if s.span_kind == "tool"]
+    assert [s.agent_or_node_id for s in tools] == ["PageDownTool"]
+    assert "page 3" in (tools[0].input_text or "")
+    # The sentinel adapters already use for a vendor's "no output" placeholder.
+    # cascade's tool branch refuses to match on it, so restoring the call
+    # cannot manufacture a duplicate pair out of two shared absences.
+    assert tools[0].output_is_absent is True
+
+
+def test_a_chain_with_no_output_is_still_skipped(tmp_path):
+    """The guard on the change above. A tool call's identity is its input; a
+    chain's content IS its output, so there is nothing to carry and the
+    previous behaviour stands."""
+    root = _oi_raw(_OI_S1, None, "agent", "AGENT", "done")
+    chain = _oi_raw(_OI_S2, _OI_S1, "empty_node", "CHAIN", "")
+    chain["span_attributes"].pop("output.value")
+    root["child_spans"] = [chain]
+
+    with _warnings_mod.catch_warnings():
+        _warnings_mod.simplefilter("ignore")
+        trace = ingest_from_openinference_json(_oi_file(tmp_path, [root]))
+
+    assert "empty_node" not in {s.agent_or_node_id for s in trace.spans}
+
+
 def test_h6_missing_output_value_raises(tmp_path):
     """When only OI spans missing output.value are present → ValueError (H6)."""
     no_out = _oi_raw(_OI_S1, None, "empty_node", "CHAIN", "")
