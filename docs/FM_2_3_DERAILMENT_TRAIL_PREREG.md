@@ -887,3 +887,113 @@ the choice of fallback is fixed before the coding rather than after it.
   constraint are untouched.
 - The 39 primary labels are not relabelled.
 - The negative result document is not written until the coding is done.
+
+## 16. Result of §15: the coding returns (a), and the single exception is the trace §14.1 named in advance
+
+All 21 justifications were coded under §15.2. Presented shuffled on seed 7 as
+`R01`–`R21` with the trace stem hidden; the map was opened only after all 21 were
+coded.
+
+| bucket | | |
+|---|---:|---|
+| **F** — failed execution of the stated objective | **20** | |
+| **D** — redirection away from it | **1** | `gaia_037` |
+| **O** — not codable | **0** | |
+
+**D = 1. §15.3's rule reads D ≤ 3 as (a), and no threshold was moved.**
+
+The single D is **`gaia_037`** — the trace §14.1 named, before this coding existed,
+as the most plausible point of divergence (31 actions, 5 of them off-target).
+TRAIL's justification for it is the one that describes action rather than
+omission: *"the system proceeded to try and find 'entry #9' on this empty page,
+deviating from the goal of finding information on the Monterey Bay Aquarium
+website."* The prediction in §14.1 held, which is recorded as a prediction that
+held and not as corroboration of the primary label on that trace.
+
+### 16.1 What TRAIL's `Goal Deviation` is, in its labellers' own words
+
+The 20 F-coded justifications do not describe an agent pursuing a different
+objective. They describe an agent **not executing its own stated plan**:
+
+| measured over the 21 justifications | |
+|---|---:|
+| mention a *plan* (`plan`) | **18** |
+| mention *skipping* it (`skip` / `bypass` / `jump` / `without`) | **10** |
+
+The recurring sentence is of one form — *"deviated from its own established plan
+by skipping steps 2 through 6"*, *"bypassed these steps by directly presenting a
+count based on internal knowledge"*, *"simulate that our search_agent has returned
+verified sale prices"*, *"shifted its goal from extracting the numbers to
+fabricating a plausible output"*.
+
+**Those are FM-3.x under §13.2**: verification skipped, a delegation that never
+happened, an answer fabricated after a tool failed. TRAIL files them under
+`Goal Deviation` because the agent departed from **its own plan**; §2 asks whether
+the agent departed from **the task's objective**. Both sentences contain the word
+*deviation* and they are not the same predicate.
+
+Taken with §15's unit finding — one span tag among a median of five on the same
+trace — the mapping in §3 compared a **span-level plan-adherence tag** against a
+**trace-level objective verdict**.
+
+Two individual records are worth naming:
+
+- **`gaia_002`**, the single BORDERLINE in the primary labels, is coded **F** from
+  TRAIL's own words: *"That makes it a hallucination."* The one trace where the
+  primary labelling leaned positive is one TRAIL describes as fabrication.
+- **`gaia_010`** and **`gaia_056`** are the shape §13.2's aim rule was written
+  for — answered from general knowledge after failing to reach the named source —
+  and TRAIL's justifications for both describe exactly that, as omission.
+
+### 16.2 🔴 Two weaknesses in this measurement, recorded rather than mentioned once
+
+**The blinding is weaker than §15.2 promised.** §15.2 required coding without
+consulting the primary label. The stems were hidden and the map was opened only at
+the end, but the author had the primary labels for 15 of the 39 in working memory
+from the session in which §14's disclosure happened. "Did not consult" is
+therefore true and "could not know" is false. The mitigation that does hold:
+**every one of the 21 is recorded with the fragment it was coded from**, so the
+coding is checkable against TRAIL's text rather than against the coder.
+
+**One TRAIL record's description does not match its evidence.** For `gaia_079`
+(`R11`) the description speaks of abandoning a plan *"to analyze the report"* and
+relying on *"external analyses"*, while the evidence is an agent substituting a
+generic strawberry-pie recipe after `inspect_file_as_text` could not read an mp3.
+It is coded F on the evidence. **The count is not moved by this**; it is recorded
+as an observation about label quality, alongside §15's free-typed category
+strings.
+
+### 16.3 What (a) licenses, and what it does not
+
+Permitted by §15.4, and not permitted before:
+
+> TRAIL's `Goal Deviation` and FM-2.3 as defined in §2 are not the same target,
+> at the unit and at the behaviour. TRAIL's tag marks a span where the agent
+> departed from its own plan — most often by skipping its own verification or
+> fabricating a result after a tool failed. §2 asks whether the agent's actions
+> or output aimed at something other than the task's objective.
+
+**§3's mapping claim is withdrawn.** The negative result is written under our own
+definition only, and TRAIL's 21 is not cited as a comparable count.
+
+🔴 **Still not permitted**, and the negative result must say so in these words:
+
+- *this corpus contains no FM-2.3 failures* — the measurement is **0–1 of 39
+  under the line in §13.2**, which is a statement about our labels.
+- **reading (b) is untested.** D = 1 says TRAIL was counting something else; it
+  does not say the line in §13.2 matches §2's wording. The 20-trace gap is now
+  explained, but *"the first labeller's line may be narrow"* is **not cleared** —
+  the two findings are independent and only the first was measured.
+- §14 is therefore **not withdrawn**. Seed 59 and `_fm23_blind15b.md` remain the
+  only instrument for (b) and stay available if an eligible labeller appears.
+
+### 16.4 What is explicitly NOT changed
+
+- **No judge call. No cost.** The §15.5 definition A/B was not run and is not
+  authorised.
+- **P2 stands at 0–1 of 39 and is final as measured.** P1 is not reported as a
+  score.
+- The 39 primary labels are not relabelled.
+- Neither the coding sheet nor the extraction script is committed — the
+  diagnostics convention, and TRAIL's no-redistribution gate. The quoted
+  fragments in this document are the committed record.
