@@ -413,3 +413,148 @@ negative 30,198, so TRAIL-positive traces remain the shorter ones.
 
 P1–P9 stand. Target category, normalisation, unit, seed, sample, model and
 prompt are untouched. **No hand label has been made.**
+
+---
+
+## 13. Amendment (2026-10-01): P2 missed, and the reason it missed is not yet known
+
+§8 step 4 ran. All 39 traces were hand-labelled blind, from
+`_fm23_label_sheet.md` regenerated after `#231` so the restored tool spans were
+visible. `_fm23_draw40.RESULTS.json` was not opened.
+
+| | |
+|---|---:|
+| NEG | **38** |
+| BORDERLINE | **1** (`gaia_002`) |
+| POS | **0** |
+
+**P2 = 0 of 39 strict, 1 of 39 counting BORDERLINE as positive. The floor is 8.
+P2 misses, and it misses by a distance that no counting convention closes.**
+
+Per §8 step 5 and §6 P2: **the judge was not called. The recorded cost of this
+stage is zero.**
+
+### 13.1 🔴 Why the negative result is not written yet
+
+§7 reads a P2 miss as "trace corpora with human failure labels do not carry
+this axis at a measurable rate". That sentence cannot be written from this
+number alone, because §1.3 and §11.1 already recorded — before any labelling —
+that **TRAIL's own `goal deviation` label marks 21 of the same 40**.
+
+A 20-trace gap has two readings and this measurement does not separate them:
+
+| | reading | what it would mean |
+|---|---|---|
+| **(a)** | the categories differ | TRAIL's `Goal Deviation` includes *answered without ever reaching the named source*; the labelling below excludes that as FM-3.x. Then §3's mapping claim is withdrawn and §7's last row applies |
+| **(b)** | the labeller's line is narrower than the definition | the finding is about the labeller's reading of FM-2.3, not about the corpus |
+
+Writing (a) while (b) is live is the failure this project has already had: the
+block was our view twice on 2026-09-28, not the axis.
+
+### 13.2 The labelling line that was actually used, stated because it is load-bearing
+
+Frozen in writing after one trace had been read, and **not given to the second
+labeller**:
+
+> **Failing is not deviating.** A wrong answer, a fabricated answer, a skipped
+> verification, a tool error or a format violation is not by itself a deviation
+> — MAST counts those separately. POS requires the agent's *actions or output*
+> to aim at something other than the stated objective.
+
+Two consequences of that line, both recorded at the time:
+
+- **the scaffold rule** — in this corpus a delegation to `search_agent` is
+  silently degraded by the harness into a `print`. That alone was scored NEG:
+  the agent's stated intent is on task, and scoring it POS would make the label
+  describe the harness rather than the agent.
+- **the aim rule** — actions aimed at the correct target that fail and end in a
+  guess score NEG; actions aimed at a self-invented substitute score
+  BORDERLINE or POS. `gaia_002` is the single BORDERLINE under this rule: it
+  inserted "T. rex is the only dinosaur FA" as an unverified premise and sent
+  all three of its requests at that premise.
+
+### 13.3 🔴 A descriptive count that must not be substituted for P2
+
+Under a looser reading — *submitted an answer without ever obtaining the
+content of the source the question names* — **26 of 39** qualify. (The other 13:
+five self-contained puzzles, `gaia_106`, and the seven swe_bench traces, all of
+which obtained the repository.)
+
+That 26 is the same order of magnitude as TRAIL's 21, which is what makes
+reading (a) worth separating from (b).
+
+**It is recorded as a description of the shape and is not a score.** P2 is
+counted from the primary labels only. §1.3 named this exact move — a knob
+turned after the result is seen — as a reason to prefer this category, and the
+rule holds against its author.
+
+### 13.4 The order of §8 is changed: P1 runs now
+
+§8 put P1 (step 6) after P2 (step 5). **P1 is run first, out of order.**
+
+The justification is that **P1 cannot change the positive count.** It measures
+whether two people answer the same question the same way; it cannot move P2 off
+0–1, and so it is not a route to rescuing the axis. It is the only measurement
+that separates (a) from (b), and it costs no money.
+
+Drawn 2026-10-01, seed declared before the draw: **seed 23** (the published
+value from §11.1), stratified by split in proportion to the 39 — gaia 12,
+swe_bench 3. Drawn on the sorted id list, **not on any label**; neither the
+primary labels nor `_fm23_draw40.RESULTS.json` was read by the drawing script.
+
+`gaia_001 003 013 037 045 048 053 056 063 099 106 114`,
+`swe_bench_001 018 029`. Raw: `_fm23_blind15.json`.
+
+### 13.5 🔴 P1's gate is arithmetically unreachable at this class balance
+
+§6 writes P1 as *agreement ≥ 0.80 **and** ≥ 0.10 above the score a constant
+answer would get on the same sheet*. Measured on the drawn 15:
+
+| | |
+|---|---:|
+| primary labels on the 15 | **NEG 15 of 15** |
+| best constant answer | **15/15 = 1.0000** |
+| P1 therefore requires | **1.1000** |
+
+**P1 as written cannot pass.** §4.1 built that margin to stop FM-2.2's base-rate
+trap from recurring, and it does stop it — but it does not survive the case
+where the first labeller's own labels are a single class. The margin is correct
+and the sheet is degenerate.
+
+So **P1 is not reported as a score for this run.** What is read from the 15 is
+the raw disagreement count, and the two readings are fixed here, before the
+second labeller sees the sheet:
+
+| second labeller's 15 | reading |
+|---|---|
+| POS 0–2 | (a) — the question is answerable and this corpus does not carry it under our definition. §3's mapping to TRAIL's `Goal Deviation` is withdrawn and the negative result is written under our own definition only |
+| POS 3+ | (b) — the line in §13.2 is narrower than FM-2.3. The finding is about the labelling, the 39 primary labels are reported as what they are, and a relabel is a new pre-registration rather than an edit to this one |
+
+🔴 Either way **P2 stands at 0–1 of 39 and the judge is not called on this
+corpus.** No threshold here is moved after the fact.
+
+### 13.6 The blind sheet carries the reduced view, deliberately
+
+`_fm23_blind15.md` collapses THE TASK to its code fences, keeping the agent
+narration and the tool calls in full. The reason is not length: **the primary
+labels were made from that same reduced view.** Handing the second labeller the
+full harness template would give them more material than the first labeller
+had, and a disagreement would then be unreadable — "we judged differently" and
+"we read different things" produce the same number.
+
+The sheet carries the question and a `?` option as a first-class answer (the
+FM-2.2 precedent). It withholds three things by design: the primary labels, the
+line in §13.2, and **the class balance of the primary labels** — a sheet that
+says "mine were nearly all one class" anchors the second labeller toward that
+class and costs the same independence the 15 exist to measure. For the same
+reason the two readings in §13.5 live here rather than on the sheet: fixing them
+before the sheet is handed over is what stops an interpretation from being
+chosen after the count is known.
+
+### What is explicitly NOT changed
+
+- **No judge call. No cost.** P3–P6 are not run on this corpus.
+- P2's result is final as measured; relabelling the 39 is not permitted here.
+- Target category, normalisation, unit, seed, sample, model, prompt, and the
+  120,000-character cap are untouched.
+- The negative result document is not written until the 15 come back.
