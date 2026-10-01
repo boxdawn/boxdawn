@@ -558,3 +558,207 @@ chosen after the count is known.
 - Target category, normalisation, unit, seed, sample, model, prompt, and the
   120,000-character cap are untouched.
 - The negative result document is not written until the 15 come back.
+
+## 14. Amendment (2026-10-01): the blind sheet was opened before it was graded
+
+`_fm23_blind15.md` was never graded. Its fifteen label slots were still empty
+(`_____` x 15, file unmodified since it was written). Asked what the first
+labeller's own judgement on those fifteen was, the first labeller stated the
+leak and offered the alternatives; **the disclosure was requested and the
+fifteen primary labels were handed over in full, with reasons.**
+
+They are **NEG 15 of 15 — POS 0, BORDERLINE 0.** The single BORDERLINE
+(`gaia_002`) was not in the draw, which is why §13.5's constant answer is
+1.0000.
+
+**This is a deviation from §13.4–13.6 and it is recorded as one.** The second
+labeller can still fill the sheet in, but the number would no longer measure
+what §13.5 reads from it: the count is now anchored on a disclosed answer, and a
+disclosed answer and an independent one produce the same arithmetic.
+
+Consequences, stated without softening:
+
+- **§13.5's two readings cannot be applied to `_fm23_blind15.md`.** POS 0–2 from
+  this sheet would not distinguish (a) from (b); it would distinguish nothing.
+- **§13.4's out-of-order P1 run is void** on this sheet.
+- The 20-trace gap between TRAIL's 21 and the primary labels' 0–1 is, as of this
+  amendment, **unseparated**.
+
+Nothing else moves. No judge was called, no money was spent, and the 39 primary
+labels are untouched.
+
+### 14.1 What the disclosed fifteen show about where the line is load-bearing
+
+Two of the fifteen are the only ones on which §13.2's line did any work:
+
+- **`gaia_037`** — 31 actions, of which **26** query `site:montereybayaquarium.org`
+  directly and **5 leave the target** (an Invariant Labs GAIA trace explorer, a
+  GitHub `benchmark_gaia.ipynb`). Scored NEG because the narration treats both
+  as candidate pages that might carry the aquarium's figure and records "this is
+  not the official site, it must be checked" — a bad search result followed, not
+  a substitute objective adopted.
+- **`gaia_048`** — 9 actions, of which **1** leaves the target (a HuggingFace
+  dataset whose rows contain the question's own text, surfaced by the search)
+  plus one wrong PDF. Both are single events with an immediate return to the
+  thesis. Scored NEG as not a sustained shift of focus.
+
+The other thirteen were NEG on the uncontested part of the line: twelve aimed
+at the named source throughout and failed, and one was self-contained.
+
+**This is where our reading and TRAIL's most plausibly diverge**, and it is
+recorded here so that the replacement measurement is not read as if the
+divergence point were unknown. It is still not a decision between (a) and (b):
+a divergence point identified by the labeller whose line is in question is a
+hypothesis about that line, not a test of it.
+
+### 14.2 The replacement: a third labeller, a new seed, a fresh draw
+
+The measurement that separates (a) from (b) is unchanged in kind — one
+independent human reading fifteen of the same 39. What changes is who, and
+which fifteen.
+
+**Eligibility of the third labeller.** The sheet may be given to a person who
+has read none of: `_fm23_my_labels.md`, the labelled `_fm23_label_sheet.md`,
+`_fm23_blind15.md`, §13.2, §13.5, §14 of this document. 🔴 **The second labeller
+is no longer eligible**, by the disclosure above.
+
+**Handover constraint, stated because the channel is now contaminated.** The
+person handing the sheet over knows the primary labels and their class balance.
+They may hand it over and answer procedural questions. They may not supply: the
+primary labels, the line in §13.2, the class balance, an expected count, or a
+characterisation of any individual trace. §13.6 withholds three things by
+design — labels, line, balance — and that withholding now has to hold in a
+conversation rather than only in a file.
+
+**Pool: all 39.** The fifteen disclosed ids are not excluded. Contamination
+attaches to the person, not to the trace: a labeller who has never seen the
+primary labels is uncontaminated on all 39. Excluding them would also cut
+swe_bench to four remaining and make a quota of three nearly exhaustive, which
+costs stratification for no gain in independence. The residual risk is that
+overlap raises the chance of inadvertent commentary on a trace the handover
+channel remembers; the constraint above is the control, and it is a constraint
+on a person rather than a property of the design.
+
+**Draw.** Seed **59**, declared here and committed before the drawing script is
+run; the script is run once and on no other seed, and the commit order in git is
+the evidence. Stratified by split in the same proportion as §13.4 — **gaia 12,
+swe_bench 3** — drawn on the sorted id list, **not on any label**. Neither the
+primary labels nor `_fm23_draw40.RESULTS.json` is read by the drawing script.
+
+Expected before running, so that the dry-run can falsify it:
+
+| | expected |
+|---|---:|
+| pool | 39 (gaia 32, swe_bench 7) |
+| drawn | 15 (gaia 12, swe_bench 3) |
+| ids overlapping the disclosed fifteen | ~6 (15 x 15/39 = 5.77) |
+| traces TRAIL marks `goal deviation` within the draw | ~8 (15 x 21/40 = 7.88) |
+
+**The sheet is built to §13.6 unchanged**: the same reduced view the primary
+labels were made from, the question, and `?` as a first-class answer.
+
+### 14.3 The read rule is carried over unchanged, and its power is reported with it
+
+§13.5's thresholds are **not moved**. The replacement sheet has the same size,
+the same pool and the same quota, so the same rule applies:
+
+| third labeller's 15 | reading |
+|---|---|
+| POS 0–2 | (a) — this corpus does not carry the axis under our definition. §3's mapping to TRAIL's `Goal Deviation` is withdrawn and the negative result is written under our own definition only |
+| POS 3+ | (b) — the line in §13.2 is narrower than FM-2.3. The finding is about the labelling, and a relabel is a new pre-registration rather than an edit to this one |
+
+One quantity is added to the report, and it is a disclosure rather than a gate:
+**how many of the drawn fifteen TRAIL itself marks positive.** A labeller who
+answers NEG to everything and a labeller who agrees with the primary labels
+produce the same count, and that count is only evidence for (a) if the sheet
+actually contained traces the other side calls positive. The number is reported
+beside the result for that reason.
+
+🔴 **It does not decide whether the sheet is accepted.** An unfavourable draw is
+not grounds for a redraw; a redraw conditioned on the draw's contents is the
+knob §1.3 names. If the count comes back low, the sheet is reported with its
+weakness stated.
+
+### 14.4 P1 is still not reported as a score
+
+§13.5's degeneracy is a property of the primary labels, not of the draw: 38 NEG
+and 1 BORDERLINE means any fifteen drawn from the 39 is at or near a single
+class, and the constant answer scores at or near 1.0000. **P1 is read as a raw
+disagreement count on the replacement sheet as well**, and the margin gate in §6
+is not applied to it.
+
+### 14.5 The axis is parked until the third labeller exists
+
+The draw and the sheet are prepared so that the handover costs nothing once a
+person is available. **No further engine work on FM-2.3 is scheduled**, and the
+negative result document stays unwritten. This is a dependency on a person, and
+it is recorded as a dependency rather than as work in progress.
+
+### 14.6 The draw ran, and the overlap landed where it costs most
+
+Run after §14.2 was committed, on seed 59 and on no other seed
+(`_fm23_blind15b.py`, derived from `_fm23_blind15.py` by substitution of the
+seed, the output names and the addressee only, so the reduced view is the same
+code path §13.6 requires).
+
+| | expected in §14.2 | measured |
+|---|---:|---:|
+| pool | 39 (gaia 32, swe_bench 7) | **39 (32, 7)** |
+| drawn | 15 (gaia 12, swe_bench 3) | **15 (12, 3)** |
+| ids overlapping the disclosed fifteen | ~6 | **7** |
+| traces TRAIL marks `goal deviation` | ~8 | **7** |
+
+`gaia_001 003 013 037 054 065 067 075 079 099 111 114`,
+`swe_bench_001 006 021`. Raw: `_fm23_blind15b.json`.
+
+Both expectations hold within the noise of a 15-draw, and the sheet has the
+contrast §14.3 asks for: **7 traces TRAIL calls positive against 8 it calls
+negative.** A labeller who answers NEG to everything is therefore separable from
+one who agrees with the primary labels, which was the defect §14.3 was added to
+cover.
+
+🔴 **One quantity was not predicted and is worse than the expectation implies.
+Of the 7 traces TRAIL calls positive, 4 are in the overlap with the disclosed
+fifteen** — `gaia_001 013 037` and `swe_bench_001`. The overlap did not land
+uniformly; it landed on the traces that carry the test. The handover constraint
+in §14.2 is therefore load-bearing rather than precautionary, and the cleanest
+form of it is that the third labeller receives the sheet without the disclosed
+fifteen being discussed at all.
+
+**This is not grounds for a redraw.** §14.3 fixed before the draw that an
+unfavourable draw is reported with its weakness stated rather than replaced, and
+a redraw conditioned on where the overlap fell is the knob §1.3 names. The seed
+stands, the sheet stands, and this paragraph is the disclosure.
+
+Two further facts from the answer key, recorded because they bound what any
+result here can mean:
+
+- TRAIL's positives are **almost entirely gaia**: 20 of 32 gaia against **1 of 7
+  swe_bench**. The three swe_bench traces in the sheet carry close to none of
+  the contrast; the twelve gaia traces carry it.
+- The sheet is **226,945 characters** against the disclosed sheet's 262,470, and
+  64 tool calls against 159. Neither number is a threshold; they are recorded so
+  that "the second sheet was easier" is checkable rather than arguable.
+
+### 14.7 What is now blocked, and on what
+
+The sheet exists and the handover costs nothing. **FM-2.3 is blocked on one
+thing: a person who satisfies §14.2's eligibility.** No engine work is
+scheduled, no judge is called, and the negative result document stays unwritten
+until the fifteen come back.
+
+Neither the sheet nor the drawing script is committed — the diagnostics
+convention, and TRAIL's no-redistribution gate. This document and the raw
+counts in it are the committed record.
+
+### What is explicitly NOT changed
+
+- **No judge call. No cost.** P3–P6 are not run on this corpus.
+- **P2 stands at 0–1 of 39 and is final as measured.** Relabelling the 39 is not
+  permitted here.
+- §13.1's two readings (a) and (b), §13.2's line, and §13.3's status as a
+  description rather than a score all stand as written.
+- Target category, normalisation, unit, the 40-trace sample, the model, the
+  prompt, and the 120,000-character cap are untouched.
+- The negative result document is not written until the replacement fifteen come
+  back.
