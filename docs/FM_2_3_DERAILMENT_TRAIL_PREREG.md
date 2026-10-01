@@ -762,3 +762,128 @@ counts in it are the committed record.
   prompt, and the 120,000-character cap are untouched.
 - The negative result document is not written until the replacement fifteen come
   back.
+
+## 15. Amendment (2026-10-01): TRAIL's own written reasons, under a rule fixed before they were read
+
+§14.7 leaves the axis blocked on a person. There is one instrument that does not
+need one: **TRAIL's labels carry human-written justifications.** Each error record
+holds a span `location`, an `evidence` quote, a free-text `description` and an
+`impact`. Reading those does not re-judge any trace and does not need a second
+labeller — it reads what the other side wrote down about what it was counting.
+
+What that can settle is §3's mapping claim, which §13.1 reading (a) turns on. What
+it cannot settle is §13.1 reading (b); §15.3 states that limit rather than eliding
+it.
+
+Measured before this rule was written, from label structure only and with no
+`Goal Deviation` justification opened:
+
+| | |
+|---|---:|
+| TRAIL labels, all categories | 841 over 148 traces |
+| `Goal Deviation` labels | **65** over **64** traces (base rate 0.4324) |
+| positive traces carrying **exactly one** GD label | **63 of 64** |
+| in the 40-sample: positives carrying exactly one | **21 of 21** |
+| median labels per trace, positives / negatives in the 40 | **5 / 5** |
+
+Two structural facts follow, and both bear on §3:
+
+🔴 **The unit does not match.** TRAIL's 21 means *one span carries a Goal
+Deviation tag among about five tagged errors on the same trace*. The FM-2.3
+primary label is a **trace-level verdict**. §3 compared a span-level event tag
+against a trace verdict and called the two the same target. This is the shape
+[[feedback-measured-target-identity]] names, and it is recorded here as the first
+finding rather than as a conclusion: **a span tag can still mark genuine
+redirection**, so the unit mismatch alone does not decide (a).
+
+**The category strings were free-typed.** About 31 surface forms cover roughly 14
+categories, including `Goal deviation` beside `Goal Deviation` and
+`Instruction non complience`. Positives are also not more error-dense than
+negatives (5 against 5), so the tag is not a severity marker. Neither fact is a
+threshold; both bound how much weight a single tag can carry.
+
+### 15.1 What has already been read, stated so the blinding is checkable
+
+One label record was printed while establishing the schema: gaia parquet row 0,
+`trace_id 041b7f9c8c76c2ca1a8e67c6769267c3`. **It is not in the 40-sample and
+carries no `Goal Deviation` label.** At the commit of this section, no
+`Goal Deviation` `evidence` or `description` has been read.
+
+The 21 are addressed by `(split, parquet row index)`, not by `trace_id` —
+`gaia_024`, `gaia_037` and `gaia_065` carry `trace_id: null` in the answer key.
+All 21 resolve, all parse, and each carries exactly one GD label.
+
+### 15.2 The coding rule, fixed before reading
+
+Each of the 21 justifications is coded into **exactly one** bucket, from TRAIL's
+own `evidence` + `description` + `location`:
+
+- **F — failed execution of the stated objective.** Hallucinated tool output; an
+  unverified assumption asserted as fact; a wrong answer; verification skipped; a
+  tool error; a delegation that never happened; an answer submitted without ever
+  reaching the named source. Under §13.2 these are FM-3.x and not deviation.
+- **D — redirection away from the stated objective.** Worked a different question;
+  adopted a self-invented substitute target; continued actions that cannot
+  advance the stated goal.
+- **O — not codable.** Describes the harness rather than the agent; restates the
+  category without naming a behaviour; names a behaviour fitting neither bucket.
+
+**Procedure, against the author's own bias.** Each justification is coded **from
+its text alone** — the trace is not opened and the primary label for that trace is
+not consulted while coding. The mapping back to the primary labels happens only
+after all 21 are coded. Each of the 21 is recorded with its bucket and a quoted
+fragment, so the coding is auditable rather than asserted.
+
+🔴 The author knows the gap is 20 traces and knows which answer would be
+convenient. That is the reason the rule is written here and not after the reading.
+
+### 15.3 The read rule
+
+| coded over the 21 | reading |
+|---|---|
+| **D ≤ 3** | **(a)** — the categories differ. §3's mapping to TRAIL's `Goal Deviation` is withdrawn, and the negative result is written under our own definition only, carrying the unit mismatch above |
+| **D ≥ 7** | **(b)** — the line in §13.2 is narrower than FM-2.3. The traces are named, the 39 primary labels are reported as what they are, and a relabel is a new pre-registration rather than an edit to this one |
+| **D 4–6, or O ≥ 8** | **inconclusive** — the justifications do not carry the decision. The definition A/B described in §15.5 becomes the next step and the negative result stays unwritten |
+
+The dead band at 4–6 is deliberate. This instrument is one person's coding of
+another person's prose, which is noisier than a verdict, and forcing a call across
+a single-case boundary would be false precision. **No threshold here moves after
+the coding.**
+
+🔴 **What a clean (a) still does not buy.** It tests whether TRAIL's category
+differs from ours. It does **not** test whether the first labeller's line is
+narrower than FM-2.3's own wording — the question §13.5's sheet existed to answer.
+Even D = 0 leaves (b) open, and the negative result must say so in those words.
+§14 is not withdrawn: seed 59 and `_fm23_blind15b.md` remain the only instrument
+for (b) and stay available if an eligible labeller appears.
+
+### 15.4 What a result here is allowed to change
+
+- **(a)** permits one sentence that was not permitted before: *TRAIL's
+  `Goal Deviation` and FM-2.3 as defined in §2 are not the same target, at the
+  unit and at the behaviour.* It does not permit *this corpus contains no FM-2.3
+  failures*, which remains a claim about our own labels at 0–1 of 39.
+- **(b)** permits naming the specific traces the primary labelling missed, and
+  nothing more; the relabel is a new pre-registration.
+
+### 15.5 The fallback, declared now so it is not chosen after the fact
+
+If §15.3 returns inconclusive, the next step is a **definition A/B on one model**:
+the same traces judged twice, once under §2's wording and once under TRAIL's own
+wording for `Goal Deviation`, with model, prompt scaffold, view and cap identical
+and **only the definition text differing**. A split in the two counts localises the
+gap to the definition; two low counts localise it to the human labels.
+
+That run costs money and is therefore **not authorised by this amendment**. It
+requires its own pre-registration with a billing guard
+([[reference-dead-key-scores-like-a-result]]), and it is named here only so that
+the choice of fallback is fixed before the coding rather than after it.
+
+### What is explicitly NOT changed
+
+- **No judge call. No cost.** P3–P6 are not run on this corpus.
+- **P2 stands at 0–1 of 39 and is final as measured.**
+- §14 stands in full. Seed 59, the sheet, the eligibility rule and the handover
+  constraint are untouched.
+- The 39 primary labels are not relabelled.
+- The negative result document is not written until the coding is done.
