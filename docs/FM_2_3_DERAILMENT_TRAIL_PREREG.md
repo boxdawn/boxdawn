@@ -694,6 +694,63 @@ person is available. **No further engine work on FM-2.3 is scheduled**, and the
 negative result document stays unwritten. This is a dependency on a person, and
 it is recorded as a dependency rather than as work in progress.
 
+### 14.6 The draw ran, and the overlap landed where it costs most
+
+Run after §14.2 was committed, on seed 59 and on no other seed
+(`_fm23_blind15b.py`, derived from `_fm23_blind15.py` by substitution of the
+seed, the output names and the addressee only, so the reduced view is the same
+code path §13.6 requires).
+
+| | expected in §14.2 | measured |
+|---|---:|---:|
+| pool | 39 (gaia 32, swe_bench 7) | **39 (32, 7)** |
+| drawn | 15 (gaia 12, swe_bench 3) | **15 (12, 3)** |
+| ids overlapping the disclosed fifteen | ~6 | **7** |
+| traces TRAIL marks `goal deviation` | ~8 | **7** |
+
+`gaia_001 003 013 037 054 065 067 075 079 099 111 114`,
+`swe_bench_001 006 021`. Raw: `_fm23_blind15b.json`.
+
+Both expectations hold within the noise of a 15-draw, and the sheet has the
+contrast §14.3 asks for: **7 traces TRAIL calls positive against 8 it calls
+negative.** A labeller who answers NEG to everything is therefore separable from
+one who agrees with the primary labels, which was the defect §14.3 was added to
+cover.
+
+🔴 **One quantity was not predicted and is worse than the expectation implies.
+Of the 7 traces TRAIL calls positive, 4 are in the overlap with the disclosed
+fifteen** — `gaia_001 013 037` and `swe_bench_001`. The overlap did not land
+uniformly; it landed on the traces that carry the test. The handover constraint
+in §14.2 is therefore load-bearing rather than precautionary, and the cleanest
+form of it is that the third labeller receives the sheet without the disclosed
+fifteen being discussed at all.
+
+**This is not grounds for a redraw.** §14.3 fixed before the draw that an
+unfavourable draw is reported with its weakness stated rather than replaced, and
+a redraw conditioned on where the overlap fell is the knob §1.3 names. The seed
+stands, the sheet stands, and this paragraph is the disclosure.
+
+Two further facts from the answer key, recorded because they bound what any
+result here can mean:
+
+- TRAIL's positives are **almost entirely gaia**: 20 of 32 gaia against **1 of 7
+  swe_bench**. The three swe_bench traces in the sheet carry close to none of
+  the contrast; the twelve gaia traces carry it.
+- The sheet is **226,945 characters** against the disclosed sheet's 262,470, and
+  64 tool calls against 159. Neither number is a threshold; they are recorded so
+  that "the second sheet was easier" is checkable rather than arguable.
+
+### 14.7 What is now blocked, and on what
+
+The sheet exists and the handover costs nothing. **FM-2.3 is blocked on one
+thing: a person who satisfies §14.2's eligibility.** No engine work is
+scheduled, no judge is called, and the negative result document stays unwritten
+until the fifteen come back.
+
+Neither the sheet nor the drawing script is committed — the diagnostics
+convention, and TRAIL's no-redistribution gate. This document and the raw
+counts in it are the committed record.
+
 ### What is explicitly NOT changed
 
 - **No judge call. No cost.** P3–P6 are not run on this corpus.
