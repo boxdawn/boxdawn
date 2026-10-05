@@ -56,7 +56,9 @@ thinking plus a short JSON object; it is not tuned to a count, and **R0 exists s
 change is measured rather than assumed harmless.**
 
 **Baseline.** R1 is read against **R0**, not against arm A's 19 — same model, same
-cap, one variable between them. Arm A vs R0 is reported separately as the `max_tokens`
+cap, one variable between them.
+🔴 **Amended 2026-10-05 — see §8.4.** Both arms moved to the Batch API, so the baseline
+is **R0-batch**; the synchronous R0 becomes an endpoint control (Q0b). Arm A vs R0 is reported separately as the `max_tokens`
 effect. Two single-variable comparisons rather than one confounded one.
 
 **No prompt tuning.** The prompt is the one already written and run; it is not revised
@@ -143,6 +145,9 @@ against R1's output. No threshold attaches to it.
 
 - **Exact call budget: 78** (R0 + R1) if R2 does not fire, **117** if it does. The
   runner **aborts above 125**.
+  🔴 **Re-baselined 2026-10-05 — see §8.2.** A credit outage consumed 31 calls that were
+  rejected before inference and billed $0.00; the abort moves to **above 175** with the
+  arithmetic shown there. The $12.00 ceiling and the $0.50 per-request ceiling do not move.
 - **Spend ceiling $12.00.** The runner aborts on crossing it.
 - **Per-call abort at $0.50.** Adaptive thinking on a 120,000-character view has no
   published worst case for this corpus; a single call that expensive is a runaway, not
@@ -244,3 +249,111 @@ is not withdrawn and the target category in §2 is unchanged.
 - The target category, the unit, the sample, the view builder and the
   120,000-character cap are the shipped ones and are not tuned here.
 - TRAIL's no-redistribution gate holds: no trace content is committed.
+
+---
+
+## 8. Amendment (2026-10-05): the run stopped on a credit outage, and resumes on the Batch API
+
+Written **before any count from R1 has been read**, and that is the whole reason it can
+be written at all. §2's thresholds are untouched; what changes is the call budget and
+the endpoint.
+
+### 8.1 What happened
+
+R0 completed and its guard passed. R1 then failed §3's guard: **31 of its 39 calls
+returned `400 invalid_request_error: "Your credit balance is too low to access the
+Anthropic API."`** Per-call cost was non-zero for **8 of 39** against a floor of 37.
+
+🔴 **R1's verdicts were not read and are not counted.** §3 exists for exactly this
+case, and the eight that succeeded are the first eight in sorted id order — a prefix,
+not a sample, so they are uninterpretable twice over. The attempt is preserved as
+`field_test/diagnostics/_fm23_reader_fidelity.R1_VOID_credit_outage.json` because the
+results document has to report the outage, and a re-run overwrites the arm's rows.
+
+**R1 is re-run whole, not resumed.** A partial arm stitched to a later batch is not the
+single-pass instrument §1.1 describes.
+
+### 8.2 🔴 A defect in §3 that the outage exposed
+
+§3 set an **exact budget of 78 calls (117 with R2) and an abort above 125**. 31 of the
+calls that consumed that budget were **rejected before inference and billed $0.00.** The
+abort was written as a runaway and overspend guard; it is now the only thing blocking a
+re-run, while the control that actually protects money — the **$12.00 spend ceiling** —
+stands at **$1.029316** and has never been close.
+
+So the call cap is re-baselined with its arithmetic shown rather than reinterpreted:
+
+| | calls |
+|---|---:|
+| billed so far (2 dry + 39 R0 + 8 R1) | 49 |
+| planned: batch dry-run | 2 |
+| planned: R0 batch + R1 batch | 78 |
+| planned: R2 batch, if §2.3's trigger fires | 39 |
+| **total** | **168** |
+| **new abort** | **above 175** |
+
+🔴 **The $12.00 spend ceiling does not move, and neither does the $0.50 per-request
+ceiling.** The money guard is unchanged; only the proxy for a runaway loop is.
+
+### 8.3 The endpoint changes to the Message Batches API
+
+**Why:** 50% off both input and output. Measured from the fixed 404,464 input tokens
+and R0's measured 7,416 output tokens, at the batch rates verified 2026-10-05
+(haiku 4.5 $0.50/$2.50 · Opus 5.5 $2/$10 · Fable 5.1 $5/$25):
+
+| arm | sync | **batch** |
+|---|---:|---:|
+| R0 | $0.442 | **$0.221** |
+| R1 | $1.766 | **$0.883** |
+| R2 | $4.415 | **$2.208** |
+| all three | $6.62 | **$3.31** |
+
+Worst single request, R2 in batch: **$0.163**, against the unchanged $0.50 ceiling.
+
+**What the endpoint does not change.** Verified against the live documentation on
+2026-10-05: *"the Message Batches API supports nearly all features available in the
+Messages API… A small number of parameters (`stream`, `speed`, and `max_tokens: 0`) are
+not supported"*, and **extended thinking is on the supported list**. So the model, the
+prompt, the view, `max_tokens` 8,192 and adaptive thinking all carry over unchanged.
+
+**What it does change, mechanically:**
+
+- `stream` is dropped. It was there only to avoid an HTTP timeout on a large
+  non-streaming request; a batch has no such request.
+- Results come back **in any order** and are keyed by `custom_id`. Trace ids are used
+  as `custom_id` (they satisfy `^[a-zA-Z0-9_-]{1,64}$`), and results are joined on that
+  key, never on position.
+- Cost is computed at the **batch** rate. `get_pricing` returns base rates, so the
+  runner applies the 0.5 multiplier; the figure reported is the billed figure.
+- A batch is capped at 100,000 requests or 256 MB. Ours is 39 requests and about
+  1.6 MB. Most batches finish within an hour; one that has not finished in 24 hours
+  expires, and an expiry is reported as a guard failure rather than as a result.
+
+### 8.4 🔴 R0 is re-run in batch too, and this is required rather than extra
+
+R1 is read against R0 (§1.1). Running R1 in batch while R0 stays synchronous would put
+the endpoint between them, on top of the two differences §1.1 already names. So **R0 is
+re-run in batch** at $0.221, and **R0-batch becomes the baseline Q1 is read against.**
+
+The synchronous R0 is not discarded. It becomes a free control:
+
+| | prediction | if it misses |
+|---|---|---|
+| **Q0b** endpoint | `|N_R0batch − N_R0sync| ≤ 5` | the endpoint moves the count, and that is reported as the finding; Q1 is then read against R0-batch alone |
+
+Same band and same reason as Q0. For the record before the re-run: **N_R0sync = 21**,
+and Q0 passed at `|21 − 19| = 2`. The move from arm A's 19 to 21 was accounted for
+exactly — the two traces that were parse failures in arm A are the two that R0 calls
+positive, and **no other verdict changed across the 37 that parsed in both**.
+
+### 8.5 What is still not changed
+
+- **§2's thresholds.** Q1 stays ≤ 4 / ≥ 10 / 5–9, Q2's trigger stays `N_R1 ≥ 5`, Q3
+  stays 0 per arm hand-read, Q4 stays ≤ 2, Q5 stays descriptive. No count from R1 has
+  been read, so none of these could have been steered.
+- **The prompt.** Still imported from the arm-A runner rather than restated.
+- **§4's validity threats**, with one added by this amendment: the batch endpoint is a
+  fourth difference between arm A and R1, and Q0b is what measures it.
+- **$12.00 spend ceiling · $0.50 per-request ceiling · cost asserted non-zero before
+  any count is read.**
+- No `src/` change. P2 stands at 0–1 of 39. §14's seed-59 sheet is not withdrawn.
