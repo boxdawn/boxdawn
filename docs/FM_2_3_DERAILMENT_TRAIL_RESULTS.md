@@ -288,6 +288,9 @@ Checked and holding:
   line in §13.2 is narrower than FM-2.3's own wording. The 20-trace gap is
   explained and *the first labeller's line may still be narrow.* Those are
   independent findings and only the first was measured.
+  🔴 **Amended 2026-10-05 — see §7.** (b) has since been tested in its
+  model-reader form and this clause narrows by exactly that much. The
+  *"statement about the labels"* half above stands, and the run strengthened it.
 - *that the axis is dead.* It is unmeasurable **on this corpus**. Three rules were
   killed on their own merits at the judge-precision gate — re-read, args-only,
   `unverified_edit` (§6 P3). FM-2.2 and FM-2.3 did not reach that gate: both
@@ -306,5 +309,72 @@ Checked and holding:
 - **The definition A/B named in §15.5 is not authorised.** Judging the same traces
   twice under the two definitions would localise the gap further, but it costs
   money and needs its own pre-registration with a billing guard.
+  🔴 **Spent 2026-10-05 — see §7.3.** It was pre-registered separately, with the
+  billing guard, and run. This bullet is the only one of the four that is spent.
 - **The FM-2.3 target category stands unchanged.** This document withdraws a
   mapping between two label sets, not a definition.
+
+---
+
+## 7. Amendment (2026-10-05): reading (b) is no longer untested, and the clause narrows by exactly that much
+
+§5 said *"Reading (b) is untested"*. It has now been tested in one of its two
+forms, and this section narrows that clause rather than rewriting it. The run:
+`FM_2_3_DEFINITION_AB_RESULTS.md`, pre-registered as
+`FM_2_3_DEFINITION_AB_PREREG.md` and merged before any call, 117 calls, recorded
+spend **$1.320141**.
+
+🔴 **No count in this document changes.** P2 stands at 0–1 of 39, the coding in
+§3.1 stands, and §3's withdrawn mapping stays withdrawn.
+
+### 7.1 What narrows
+
+The same 39 traces were judged three times by one fixed reader, changing only the
+definition sentence: our §13.2 line, MAST FM-2.3 verbatim, and §13.3's
+operational line as a control.
+
+| arm | definition | positives / 39 |
+|---|---|---:|
+| A | our §13.2 line | 19 |
+| B | MAST FM-2.3 verbatim | 20 |
+| C | §13.3 operational line (control) | 29 |
+
+`N_B − N_A = 1`, against a pre-registered support threshold of ≥ 7 and a
+weakening threshold of ≤ 3. The control cleared its floor of 18 and landed beside
+the human count of 26 on the same line, so the instrument does respond to
+definition text on this corpus.
+
+**So the specific worry narrows:** the exclusions in §13.2 do **not** suppress the
+count relative to MAST's own wording *for this reader*. The two wordings agree on
+17 of the 22 traces either one flags.
+
+### 7.2 🔴 What does not narrow — and what the run strengthened instead
+
+§5's clause *"the measurement is 0–1 of 39 under one labeller's line, and that is
+a statement about the labels"* **stands, and the run made it sharper rather than
+weaker.**
+
+The fidelity check missed: arm A — the labeller's own written line, handed to the
+fixed reader — returned **19** where the labeller returned 0–1. In 10 of those 19
+the reader's stated grounds are categories §13.2 explicitly excludes. So the
+divergence this run exhibits is not between the two written definitions; it is
+between a written definition and the person who wrote it.
+
+**Therefore the following are NOT licensed and are not claimed:**
+
+- that the 0–1 of 39 is a statement about MAST FM-2.3 on this corpus rather than
+  about one labeller's strictness. Arm A points the other way.
+- that a human reading MAST's wording would mark 0–1. The reader here is a model,
+  which the A/B pre-registration named as its first validity threat.
+
+### 7.3 Consequence for §6
+
+**§6's third bullet is spent**, and only that one: the definition A/B it declined
+to authorise has now been pre-registered separately, run, and reported.
+
+**§6's second bullet is reaffirmed.** The seed-59 blind sheet is **not**
+withdrawn and still needs an eligible labeller. It is the only instrument for the
+human form of (b), and the fidelity miss above makes that form the more
+interesting question rather than the less: a written sentence and its author
+disagree by 19 of 39, and no run so far separates "the line is narrow" from "the
+line is not what the labeller applied".
