@@ -1,0 +1,246 @@
+# FM-2.3 reader fidelity: is the 19 a property of the line, or of the reader?
+
+Pre-registration. Written before any call is made. Follows
+`FM_2_3_DEFINITION_AB_RESULTS.md`, whose Q1 produced the question this answers.
+
+**One question.** The definition A/B's arm A handed the labeller's own written line
+(§13.2) to a fixed reader and got **19 positives of 39**, where the labeller who wrote
+that line had labelled the same 39 at **0–1**. Two readings of that gap are currently
+tangled:
+
+- **(i) the reader.** `claude-haiku-4-5` cannot apply an exclusion-laden definition.
+  The evidence field supports this: **10 of the 19** arm-A positives rest on
+  categories §13.2 explicitly excludes.
+- **(ii) the line.** The written sentence genuinely does not encode the standard its
+  author applied.
+
+Only (ii) is a finding about the project. This run tests whether (i) accounts for the
+19, by holding the prompt fixed and changing the reader.
+
+🔴 **This is not a substitute for the third labeller.** Whichever way it lands, the
+human form of reading (b) stays open and §14's seed-59 sheet stays available. What
+this run can do is tell us whether the 19 is worth citing at all.
+
+---
+
+## 1. What is held identical, and what is deliberately not
+
+**Byte-identical to the definition A/B's arm A:** the system-prompt scaffold, the
+§13.2 definition string, the question stem, the output shape, the view builder
+(`render_trace_for_judge`), the tool-output cap (2,000), the view cap (120,000) with
+the shipped truncation notice, and the sample (the same 39, `swe_bench_011` excluded).
+The runner re-reads the definition out of
+`FM_2_3_DERAILMENT_TRAIL_PREREG.md` and refuses to run if it has drifted.
+
+**Deliberately different: the reader.** Two things change together on the test arm —
+the model and its native thinking configuration — and that is the manipulated
+variable, not a confound to be removed. The question is whether *a competent reader*
+applies the exclusions, not whether a specific parameter does. §4 states what that
+costs us.
+
+### 1.1 The arms
+
+| arm | model | thinking | `max_tokens` | role |
+|---|---|---|---:|---|
+| **A** | `claude-haiku-4-5` | none | 256 | **already run.** N_A = 19. No new calls |
+| **R0** | `claude-haiku-4-5` | none | 8,192 | isolates the `max_tokens` change alone |
+| **R1** | `claude-opus-5-5` | adaptive (native default) | 8,192 | 🔴 **the test** |
+| **R2** | `claude-fable-5-1` | adaptive (always on) | 8,192 | **conditional** — fires only on the trigger in §2.3 |
+
+Model ids verified against `GET /v1/models` on 2026-10-05.
+
+**Why `max_tokens` moves at all.** At 256 the evidence strings were cut mid-sentence
+and arm B missed Q4 with 3 parse failures. A reader whose JSON is truncated before its
+closing brace is not being tested on its reading. 8,192 is chosen to hold adaptive
+thinking plus a short JSON object; it is not tuned to a count, and **R0 exists so the
+change is measured rather than assumed harmless.**
+
+**Baseline.** R1 is read against **R0**, not against arm A's 19 — same model, same
+cap, one variable between them. Arm A vs R0 is reported separately as the `max_tokens`
+effect. Two single-variable comparisons rather than one confounded one.
+
+**No prompt tuning.** The prompt is the one already written and run; it is not revised
+here, and will not be revised after a count is seen.
+
+**Nothing from this run ships.** No `src/` change is authorised by this document.
+
+---
+
+## 2. Predictions, with thresholds fixed now
+
+Let **N_R0**, **N_R1**, **N_R2** be positives out of 39.
+
+### 2.1 Q0 — the `max_tokens` control
+
+| | |
+|---|---|
+| **prediction** | `|N_R0 − 19| ≤ 5` (i.e. 14–24) |
+| **if it misses** | the cap alone moved the count by more than the model is being asked to move it. Reported as the finding, and Q1 is read against N_R0 only — arm A's 19 is then not comparable to anything in this run |
+
+### 2.2 Q1 — the test
+
+| N_R1 | reading |
+|---|---|
+| **≤ 4** | **(i) accounts for the 19.** A competent reader does reproduce the labels from the written line. The "written line ≠ labeller's standard" reading is **weakened**, and arm A's 19 must not be cited as evidence about the line |
+| **≥ 10** | **(i) does not account for it.** The written line diverges from its author's labels under a strong reader too. Reading (ii) is **supported** |
+| **5–9** | **inconclusive.** Same dead band and same reason as §15.3 of the parent prereg: forcing a call across a single-case boundary is false precision |
+
+🔴 **No expectation is stated for N_R1.** The arm under test does not get a prior from
+this document. N_R0's expectation exists precisely because it is the arm that can
+falsify the setup.
+
+### 2.3 Q2 — the conditional second reader
+
+**R2 fires if and only if `N_R1 ≥ 5`.** The trigger is fixed here, before any call, so
+it is a sequential design rather than a knob: if R1 already lands ≤ 4 the question is
+answered and the money is not spent.
+
+| N_R2 | reading |
+|---|---|
+| **≤ 4** | the strongest available reader applies the exclusions. R1's count is a property of R1, and (i) still accounts for arm A |
+| **≥ 10** | **two independent strong readers both diverge from the labeller.** The strongest evidence this instrument can produce for (ii) |
+| **5–9** | inconclusive, and the run stops there |
+
+### 2.4 Q3 — hallucinated evidence
+
+**0 findings per arm whose quoted evidence is absent from the view.** Any arm with a
+genuine absent quote is voided.
+
+🔴 **Checked by the corrected method, and only by it.** The definition A/B's first
+three attempts at this check returned 68 of 68, then 74 of 193, then 19 of 141
+"absent", all three wrong for different reasons; the fourth — fragment extraction with
+word-boundary guards on the single-quote form, then **hand-reading every candidate** —
+returned 0. The instrument is `field_test/diagnostics/_fm23_definition_ab_q3.py`, and
+every candidate it flags is read by hand before any arm is called voided. A mechanical
+count is not a Q3 result.
+
+### 2.5 Q4 — parse failures
+
+**≤ 2 of 39 per arm.** Reported with the cost. Arm B of the definition A/B missed this
+at 3; the raised cap is expected to remove the cause, and that expectation is on the
+record here so the run can contradict it.
+
+### 2.6 Q5 — mechanism, descriptive and not a gate
+
+Of each arm's positives, how many rest on a category §13.2 excludes (a wrong answer, a
+fabricated answer, a skipped verification, a tool error, a format violation). Frozen
+pattern, so the count is mechanical:
+
+```
+fabricat | without (any )?(actual )?(verif|evidence|research|search)
+| never (actually )?(search|retriev|obtain|verif) | skipped verif
+| made.up | hallucin | no evidentiary
+```
+
+🔴 **This pattern was written on 2026-10-05 *after* reading arm A's evidence strings,
+where it matched 10 of 19.** It is therefore a descriptive instrument carried forward,
+not a confirmatory one, and it is frozen here so that at least it cannot be retuned
+against R1's output. No threshold attaches to it.
+
+---
+
+## 3. 🔴 Billing guard
+
+- **Exact call budget: 78** (R0 + R1) if R2 does not fire, **117** if it does. The
+  runner **aborts above 125**.
+- **Spend ceiling $12.00.** The runner aborts on crossing it.
+- **Per-call abort at $0.50.** Adaptive thinking on a 120,000-character view has no
+  published worst case for this corpus; a single call that expensive is a runaway, not
+  a measurement.
+- 🔴 **Before any count is read**, assert **aggregate cost > 0** *and* **per-arm cost >
+  0** *and* **per-call cost > 0 for at least 37 of 39 calls in each arm.**
+- The **recorded** cost is reported, not the planning figure.
+
+**Planning figure.** Arm A recorded **404,464 input tokens** across its 39 views; the
+views are identical here, so input is fixed and only output varies. At the rates
+verified 2026-10-05 ($1/$5 haiku · $4/$20 Opus 5.5 · $10/$50 Fable 5.1), and allowing
+50,000 output tokens per arm for thinking: R0 ≈ $0.65 · R1 ≈ $2.62 · R2 ≈ $6.54 ⇒
+**about $3.3 for the two-arm case and $9.8 for all three.** A planning figure, nothing
+more. The definition A/B's planning figure was 9% high.
+
+🔴 `claude-opus-5-5` and `claude-fable-5-1` were priced wrongly by our own table until
+`boxdawn/boxdawn#239` — the alias prefix resolved them to the previous release, 25%
+high on Opus 5.5 tokens and 300% high on the Fable 5.1 cache-read line, with no
+warning. **This run asserts the resolved rates against the figures above before
+spending anything**, rather than trusting the table.
+
+---
+
+## 4. Validity threats, stated before the result
+
+- 🔴 **R1 and R2 change model and thinking together.** If N_R1 lands ≤ 4 we will not
+  know which of the two did it. That is accepted because the conclusion it licenses —
+  *a competent reader reproduces the labels from this line* — does not depend on
+  which. It would matter if we wanted to ship a reader; nothing here ships.
+- 🔴 **Neither direction settles reading (b).** A reader that reproduces 0–1 shows the
+  written line is readable as the labeller read it; it does not show that the
+  labeller's line matches **MAST's** wording as a human would apply it. §14's sheet
+  remains the only instrument for that, and this document does not touch it.
+- **The reader is being graded against labels it cannot be independent of.** The 0–1
+  is one person's. If those labels are themselves wrong, an arm that reproduces them
+  scores well for the wrong reason. This run cannot detect that; the human sheet can.
+- **Truncation is unchanged.** The same three views exceed the 120,000 cap
+  (`gaia_037`, `gaia_048`, `gaia_080`; measured 2026-10-05 at 237,465 / 306,948 /
+  250,781 characters). All arms understate by the same unknown amount, and `gaia_037`
+  remains the one trace the §16 coding returned as a genuine redirection with only
+  about half of it visible.
+- **Order and state.** Calls are independent, no conversation carried between traces
+  or arms. Arm order is R0, R1, then R2 if triggered, and is fixed for reproducibility.
+- **A stronger reader is not a neutral reader.** A model with adaptive thinking may
+  reason itself toward or away from the exclusions in ways a human applying the same
+  sentence would not. Q5 is reported for exactly this reason, and it is descriptive.
+
+---
+
+## 5. What each outcome licenses
+
+**N_R1 ≤ 4 (and R2 does not fire).** Arm A's 19 is withdrawn as evidence about the
+line — in a documented amendment to `FM_2_3_DEFINITION_AB_RESULTS.md`, with this run
+named. §2.2's Q1 "miss" there stands as recorded, but its *interpretation* narrows to
+a statement about `claude-haiku-4-5`. 🔴 The published counts do not change, and §4 of
+that document — which says the licensed narrowing is smaller than §5's sentence —
+would then be **re-opened in the direction it closed**, because the objection it raised
+rested on arm A's 19.
+
+**N_R1 ≥ 10, or N_R2 ≥ 10.** Reading (ii) is supported: the written line does not
+encode its author's standard. The licensed next step is **not** a relabel; it is to
+state in the same amendment that the four axes stopped for want of a positive class
+were stopped under lines whose written form has been shown, once, not to reproduce the
+labels made under them. Re-examining those axes needs its own pre-registration and the
+human sheet.
+
+**Inconclusive, or Q0 misses.** Reported as such. Arm A's 19 stays as published, with
+both readings (i) and (ii) explicitly open, and the human sheet becomes the only route.
+
+**In every case:** P2 stands at 0–1 of 39. FM-2.3 ships nothing. §14's seed-59 sheet
+is not withdrawn and the target category in §2 is unchanged.
+
+---
+
+## 6. Order of work
+
+1. This document is committed and pushed **before the runner is modified**.
+2. The runner is extended to take a model, a `max_tokens` and one arm — no new prompt
+   is written, because the prompt is the one arm A already used.
+3. The resolved rate for each arm's model is asserted against §3's figures **before
+   any call**.
+4. A dry-run on **2 traces of R1** (2 calls) checks the parse shape, the cost, and that
+   thinking does not overrun the per-call abort. Its counts are **not** read.
+5. R0, then R1. Costs recorded per arm.
+6. The billing guard in §3 is checked **before** any count is looked at.
+7. Q0 first, then Q1. R2 fires only if §2.3's trigger is met.
+8. Q3 candidates are hand-read before any arm is called voided.
+9. Results to `docs/FM_2_3_READER_FIDELITY_RESULTS.md`, and the amendment §5 licenses
+   to `FM_2_3_DEFINITION_AB_RESULTS.md` in the same PR.
+
+---
+
+## 7. What is explicitly NOT changed
+
+- **No `src/` change**, and the shipped verification axis is untouched.
+- **P2 stands at 0–1 of 39**; the definition A/B's counts (N_A 19 · N_B 20 · N_C 29)
+  are final and are not re-run.
+- **§14's seed-59 sheet is not withdrawn**, and no outcome here replaces it.
+- The target category, the unit, the sample, the view builder and the
+  120,000-character cap are the shipped ones and are not tuned here.
+- TRAIL's no-redistribution gate holds: no trace content is committed.
