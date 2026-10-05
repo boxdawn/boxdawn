@@ -95,6 +95,37 @@ PRICING: dict[str, ModelPricing] = {
         cache_write_1h_per_mtok=10.0,
         output_per_mtok=25.0,
     ),
+    "opus-5.5": ModelPricing(
+        # Source: https://platform.claude.com/docs/en/about-claude/pricing
+        # Verified: 2026-10-05
+        # 🔴 The first Anthropic model that is CHEAPER than its predecessor at
+        # the same tier: $4/$20 against Opus 5's $5/$25. Every rate below the
+        # Opus-5 entry's, so resolving an Opus 5.5 trace through the
+        # `claude-opus-5` prefix OVERSTATES cost by 25% on tokens and 150% on
+        # cache reads. Measured 2026-10-05, before this entry existed.
+        # Cache reads are 0.05x base here, not the standard 0.1x.
+        name="claude-opus-5-5",
+        base_input_per_mtok=4.0,
+        cache_read_per_mtok=0.20,
+        cache_write_5m_per_mtok=5.0,
+        cache_write_1h_per_mtok=8.0,
+        output_per_mtok=20.0,
+    ),
+    "sonnet-5.5": ModelPricing(
+        # Source: https://platform.claude.com/docs/en/about-claude/pricing
+        # Verified: 2026-10-05
+        # Priced identically to Sonnet 5, so the `claude-sonnet-5` prefix was
+        # already returning the right number -- by luck, the same luck the
+        # Opus 4.8 alias note below describes. The entry exists so that if the
+        # two ever diverge, this line is what changes rather than a prefix
+        # quietly staying plausible.
+        name="claude-sonnet-5-5",
+        base_input_per_mtok=2.0,
+        cache_read_per_mtok=0.20,
+        cache_write_5m_per_mtok=2.50,
+        cache_write_1h_per_mtok=4.0,
+        output_per_mtok=10.0,
+    ),
     "opus-4.1": ModelPricing(
         # Source: https://platform.claude.com/docs/en/about-claude/pricing
         # Verified: 2026-09-01
@@ -167,6 +198,33 @@ PRICING: dict[str, ModelPricing] = {
         name="claude-fable-5",
         base_input_per_mtok=10.0,
         cache_read_per_mtok=1.0,
+        cache_write_5m_per_mtok=12.50,
+        cache_write_1h_per_mtok=20.0,
+        output_per_mtok=50.0,
+    ),
+    "fable-5.1": ModelPricing(
+        # Source: https://platform.claude.com/docs/en/about-claude/pricing
+        # Verified: 2026-10-05
+        # Token rates match Fable 5 exactly; only the cache read differs, and
+        # it differs by 4x: 0.025x base ($0.25) against Fable 5's 0.1x ($1.00).
+        # A cache-heavy Fable 5.1 trace priced through the `claude-fable-5`
+        # prefix overstates its cache-read line by 300%.
+        name="claude-fable-5-1",
+        base_input_per_mtok=10.0,
+        cache_read_per_mtok=0.25,
+        cache_write_5m_per_mtok=12.50,
+        cache_write_1h_per_mtok=20.0,
+        output_per_mtok=50.0,
+    ),
+    "mythos-5.1": ModelPricing(
+        # Source: https://platform.claude.com/docs/en/about-claude/pricing
+        # Verified: 2026-10-05
+        # Same rates as Fable 5.1, same 0.025x cache read. Limited
+        # availability (Project Glasswing), priced here for the same reason
+        # `mythos-5` is: a trace we cannot price is a trace we misreport.
+        name="claude-mythos-5-1",
+        base_input_per_mtok=10.0,
+        cache_read_per_mtok=0.25,
         cache_write_5m_per_mtok=12.50,
         cache_write_1h_per_mtok=20.0,
         output_per_mtok=50.0,
@@ -442,8 +500,21 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("claude-3.5-sonnet", "sonnet-4.5"),
     ("claude-sonnet-4-6", "sonnet-4.6"),
     ("claude-sonnet-4.6", "sonnet-4.6"),
+    # 🔴 Point releases sit ABOVE the release they extend. `resolve_pricing`
+    # takes the FIRST matching prefix, not the longest, so order is the
+    # correctness property here: with `claude-opus-5` first, every
+    # `claude-opus-5-5` string resolved to Opus 5's rates -- 25% high on
+    # tokens, 150% high on cache reads -- and `matched` came back True, so no
+    # warning fired. An unknown model warns; a newer model whose name extends
+    # an older one's does not. Measured 2026-10-05.
+    ("claude-opus-5-5", "opus-5.5"),
+    ("claude-opus-5.5", "opus-5.5"),
     ("claude-opus-5", "opus-5"),
+    ("claude-fable-5-1", "fable-5.1"),
+    ("claude-fable-5.1", "fable-5.1"),
     ("claude-fable-5", "fable-5"),
+    ("claude-sonnet-5-5", "sonnet-5.5"),
+    ("claude-sonnet-5.5", "sonnet-5.5"),
     ("claude-sonnet-5", "sonnet-5"),
     # Opus 4.8 already resolved through the `claude-opus-4` prefix below, and
     # by luck to the right number -- 4.7 and 4.8 are priced identically. The
@@ -469,6 +540,8 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("claude-haiku-4-5", "haiku-4.5"),
     ("claude-haiku-3-5", "haiku-3.5"),
     ("claude-haiku-3.5", "haiku-3.5"),
+    ("claude-mythos-5-1", "mythos-5.1"),
+    ("claude-mythos-5.1", "mythos-5.1"),
     ("claude-mythos-5", "mythos-5"),
     ("claude-haiku-4.5", "haiku-4.5"),
     # Google

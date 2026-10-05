@@ -462,3 +462,65 @@ def test_the_bare_opus_4_alias_no_longer_borrows_another_opus_rate():
     _pricing, matched = resolve_pricing("claude-opus-4")
     assert matched
     assert get_pricing("claude-opus-4") is not PRICING["opus-4.7"]
+
+
+@pytest.mark.parametrize("model, base, cache_read, output", [
+    # Vendor page fetched 2026-10-05.
+    ("claude-opus-5-5", 4.0, 0.20, 20.0),
+    ("claude-opus-5.5", 4.0, 0.20, 20.0),
+    ("claude-sonnet-5-5", 2.0, 0.20, 10.0),
+    ("claude-fable-5-1", 10.0, 0.25, 50.0),
+    ("claude-mythos-5-1", 10.0, 0.25, 50.0),
+])
+def test_audit_2026_10_05_point_release_rates(model, base, cache_read, output):
+    """The .5/.1 releases, which are not priced like the releases they extend.
+
+    Opus 5.5 is the first Anthropic model cheaper than its predecessor at the
+    same tier, and Fable 5.1 moved only its cache-read multiplier. Both break
+    the assumption that a newer point release costs the same or more.
+    """
+    pricing = get_pricing(model)
+    assert pricing.base_input_per_mtok == base
+    assert pricing.cache_read_per_mtok == cache_read
+    assert pricing.output_per_mtok == output
+
+
+@pytest.mark.parametrize("newer, older", [
+    ("claude-opus-5-5", "opus-5"),
+    ("claude-fable-5-1", "fable-5"),
+    ("claude-mythos-5-1", "mythos-5"),
+    ("claude-sonnet-5-5", "sonnet-5"),
+])
+def test_a_point_release_does_not_resolve_to_the_release_it_extends(newer, older):
+    """🔴 The ordering guard, and the shape of the defect it pins.
+
+    `resolve_pricing` takes the FIRST matching prefix, not the longest. With
+    `claude-opus-5` listed above `claude-opus-5-5`, every Opus 5.5 string
+    resolved to Opus 5 -- 25% high on tokens, 150% high on cache reads -- and
+    `matched` came back True, so the unknown-model warning never fired. An
+    unknown model warns; a newer model whose name extends an older one's does
+    not, which is why this needs a test rather than the warning.
+
+    Move either new alias below the shorter one and this fails. Sonnet 5.5 is
+    included although its rates are identical to Sonnet 5's: the assertion is
+    about which entry answered, not about the number, so it keeps the luck from
+    hiding a future divergence.
+    """
+    assert get_pricing(newer) is not PRICING[older]
+
+
+def test_every_point_release_alias_precedes_its_shorter_prefix():
+    """Stated over the alias tuple itself, so a new entry appended in the wrong
+    place fails here even if no model happens to be tested above."""
+    from clew.cost.pricing import _ALIASES
+
+    order = [prefix for prefix, _target in _ALIASES]
+    for longer in (
+        "claude-opus-5-5", "claude-fable-5-1",
+        "claude-sonnet-5-5", "claude-mythos-5-1",
+    ):
+        shorter = longer.rsplit("-", 1)[0]
+        assert order.index(longer) < order.index(shorter), (
+            f"{longer!r} must precede {shorter!r}: startswith takes the first "
+            f"match, so the shorter prefix would shadow it"
+        )
