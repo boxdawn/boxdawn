@@ -224,9 +224,9 @@ The mapping is therefore tested before the axis is re-opened, not after.
 | co-occurrence on INC traces | `formatting` 36 (46%) · `goal deviation` 34 (44%) · `language-only` 28 (36%) |
 
 Revision pinned at `b424ce63d5973d5dcd7169b1bc3c07ccdee276d1`, the same snapshot
-§15 used. The 156 are after normalisation: case-folded, whitespace-collapsed,
+`FM_2_3_DERAILMENT_TRAIL_PREREG.md` §15 used. The 156 are after normalisation: case-folded, whitespace-collapsed,
 `non-compliance` and `non complience` folded to one form, a trailing `Errors?`
-dropped. The category strings were free-typed, which §15 already recorded. Probe
+dropped. The category strings were free-typed, which that §15 already recorded. Probe
 scripts are diagnostics and are not committed.
 
 Three facts follow, and all three bear on the mapping:
@@ -255,7 +255,7 @@ been displayed or read.** The probes above computed counts, string *lengths* and
 contents were not inspected.
 
 One label record was printed in full on 2026-10-01 while establishing the schema
-for §15: gaia parquet row 0, `trace_id 041b7f9c8c76c2ca1a8e67c6769267c3`. It
+for that §15: gaia parquet row 0, `trace_id 041b7f9c8c76c2ca1a8e67c6769267c3`. It
 carries five labels and **none of them is `Instruction Non-compliance`**, so it
 contributes nothing to the 156.
 
@@ -269,7 +269,7 @@ Each of the 156 labels is coded into **exactly one** bucket, from TRAIL's own
   task text, a named prohibition, a required source. Under §2's line this is
   FM-1.1.
 - **S — the agent's own stated plan or promise was not carried out.** This is the
-  construct §15 found behind `Goal Deviation`. Not FM-1.1.
+  construct `FM_2_3_*` §15 found behind `Goal Deviation`. Not FM-1.1.
 - **H — a harness or system convention was violated that the task prompt does not
   state.** Tool-call schema, the harness answer wrapper, reply language where the
   harness fixed it, framework role rules. Not FM-1.1 under §2, which requires the
@@ -353,3 +353,128 @@ what this corpus can support on every axis, not only FM-1.1.
 **No judge call. No cost.** The reading is local and the corpus is already on
 disk. TRAIL traces and the derived sheets are not committed — the diagnostics
 convention and TRAIL's no-redistribution gate.
+
+## 10. Result of §9: the category counts harness guidance, not the task specification
+
+Scores §9. All 156 labels coded, in full, under the rule merged at `3b63e6c`
+before any justification was opened. No judge call, no cost.
+
+**T = 8 of 156 = 0.0513.** §9.4 fixed `< 0.40` as *"the category counts something
+else"*, so TRAIL's `Instruction Non-compliance` **is not an FM-1.1 positive pool**
+and this axis stays parked on this corpus.
+
+### 10.1 The coding
+
+| bucket | | gaia | swe_bench |
+|---|---:|---:|---:|
+| **T** — a constraint stated in the task prompt | **8 / 156 = 0.0513** | 4 / 65 = 0.0615 | 4 / 91 = 0.0440 |
+| **S** — the agent's own stated plan | 20 / 156 = 0.1282 | 15 / 65 = 0.2308 | 5 / 91 = 0.0549 |
+| **H** — a harness convention the prompt does not state | **128 / 156 = 0.8205** | 46 / 65 = 0.7077 | 82 / 91 = 0.9011 |
+| **O** — not decidable from the three fields | 0 / 156 = 0.0000 | 0 | 0 |
+
+### 10.2 What the 156 are actually about
+
+Two instruction strings carry **110 of 156 = 0.7051** between them:
+
+| family | | what the labeller cited |
+|---|---:|---|
+| `print_limit` | **73 / 156 = 0.4679** | swe_bench operator guidance: *"STRICTLY DO NOT print file contents to the terminal … simply print upto the first 500 characters … then find the required information using regex"* |
+| `end_plan` | **37 / 156 = 0.2372** | the gaia planning template's closing tag: *"After writing the final step of the plan, write the `\n<end_plan>` tag and stop there"* |
+| `own_plan` | 20 / 156 = 0.1282 | the agent's own plan or stated intention, not carried out |
+| `task_text` | **8 / 156 = 0.0513** | the request itself |
+| `explore_tree` | 5 / 156 = 0.0321 | *"You must then carefully analyze the tree structure of the repository"* |
+| `tool_schema` · `answer_format` · `final_answer_tool` | 3 each | tool signature, gaia FINAL ANSWER formatting, *"return a final answer using the `final_answer` tool"* |
+| `code_block` · `core_instruction` · `import_whitelist` | 2 · 1 · 1 | framework `Thought:`/`Code:` structure, the framework's module allow-list |
+
+**The most frequently violated "instruction" in this category is a line about how
+much text to print.** That is a statement about operator guidance to the agent,
+not about the task the agent was given.
+
+### 10.3 🔴 The rule has a defect, and running it is how that was found
+
+**82 of 156 = 0.5256 were decided by the §9.3 tie-break** (T-or-H undecided → H)
+rather than by the text. The three fields name *"the instruction"* without saying
+whether it sits in the user request or in the framework's system prompt, and
+`print_limit` and `explore_tree` are undecidable on that point from
+`location` + `evidence` + `description` alone.
+
+🔴 **§9.4's O-guard did not fire, and could not have.** It triggers on `O ≥ 0.30`,
+but the tie-break routes T/H undecidability into **H**, not O — so O came out
+**0.0000** while half the corpus was in fact undecided. A guard that watches one
+bucket cannot see undecidability that another rule has already absorbed. That is
+a defect in the instrument written in §9.3, not a property of TRAIL.
+
+✅ **The decision does not depend on it.** Resolving **every** tie-break in favour
+of the hypothesis gives an upper bound of **90 / 156 = 0.5769**, which lands in
+§9.4's middle band — *"usable only under a definition widened to include H, which
+must then carry a different name"*. It never reaches the 0.70 that would make
+this a clean FM-1.1 pool. **Both the registered reading and its most generous
+possible reading refuse the axis as written.**
+
+What would decide the 82 is one input §9.3 did not authorise: the trace carries
+the system prompt and the user turn as separate messages, so the role that states
+each instruction is readable. **That is not done here** — adding an input after
+reading the rationales would make *"coded under a rule fixed beforehand"* false.
+It is written down as the instrument the next mapping study should pre-register.
+
+### 10.4 Impact, and the thin pool that was named in advance
+
+| impact | n | T | S | H |
+|---|---:|---:|---:|---:|
+| HIGH | 16 | **7** | 4 | 5 |
+| MEDIUM | 94 | 1 | 15 | 78 |
+| LOW | 46 | **0** | 1 | 45 |
+
+**T concentrates entirely in the severe end**: 7 of 8 T labels are HIGH, and 45 of
+46 LOW labels are H. The severe end of this category does look more like task
+non-compliance — and it is **7 labels**, against the 30–40 hand-labelled cases
+this repository's gate has required three times.
+
+§9.6 named *"a pass with a thin pool"* as the risk. It arrived in the other
+direction: the axis **failed** overall, and its only credible subset is too thin
+to measure. Either way the thin pool is the operative fact, so it is recorded
+rather than offered as a route back in.
+
+### 10.5 The 18 boundary spans
+
+The spans carrying both `Instruction Non-compliance` and `formatting` code **H 16,
+S 2, T 0**. The boundary §9.4 asked to be reported separately turned out not to be
+where the question lives.
+
+### 10.6 Predictions scored
+
+| | prediction | result | |
+|---|---|---|---|
+| T | 0.55 – 0.75, point 0.65 | **0.0513** | **MISS**, by an order of magnitude |
+| S | ≤ 0.15 | 0.1282 | PASS |
+| H | 0.15 – 0.35 | **0.8205** | **MISS** |
+| O | ≤ 0.10 | 0.0000 | PASS — but see §10.3, it passed for the wrong reason |
+| T among the 16 HIGH labels | ≥ 8 | **7** | **MISS**, by one |
+| \|T swe_bench − T gaia\| | ≤ 0.20 | **0.0176** | PASS |
+
+Three of six missed, and the one that matters missed by an order of magnitude.
+The O prediction passed while being the least informative number in the table.
+
+🔴 §9.6's second named risk — *"a large S changes more than this axis"* — did
+**not** fire: S is 0.1282, not large. But it is **not zero**, and it is the same
+construct `FM_2_3_*` §15 found behind `Goal Deviation`. TRAIL encodes *self-adherence* under
+at least two category names, at 0.2308 of gaia's INC labels. That bounds how far
+any single TRAIL category name can be trusted, which is the finding that
+generalises beyond this axis.
+
+### 10.7 What follows
+
+- **FM-1.1 stays parked on this corpus.** The 0/40 on our own sessions is
+  untouched, and TRAIL does not supply the positive class it lacked.
+- **No judge was called. Cost 0.** Scripts are diagnostics and are not committed;
+  the dumped rationales are TRAIL text and stay off the repository.
+- **The mapping instrument is the reusable product of this run**, in two parts:
+  code the other side's written reasons before using their category, and **read
+  which role states the instruction** — the input this run deliberately did
+  without.
+- 🔴 **Not a result, recorded as an observation**: 73 of 156 labels are a human
+  annotator writing down that the agent printed far more text than it was told
+  to. That is adjacent to what this project measures, and `resource abuse` is a
+  separate TRAIL category on 42 of 148 traces. Whether either is a detectable
+  waste signal is **unmeasured** and needs its own pre-registration before any
+  count from it is quoted.
