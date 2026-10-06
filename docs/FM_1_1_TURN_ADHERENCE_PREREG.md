@@ -190,3 +190,166 @@ here.
    including those that fail.
 6. Only on a pass: wiring, and a decision about whether this ships behind the
    same plan gate and the same per-project switch as FM-3.2.
+
+## 9. Amendment (2026-10-06): whether TRAIL's `Instruction Non-compliance` counts FM-1.1, under a rule fixed before the reasons were read
+
+`FM_1_1_TURN_ADHERENCE_RESULTS.md` closed this axis with zero violations in forty
+labelled turns. Its own title says where that zero was measured: **on our own
+sessions.** A zero on one corpus leaves open whether a corpus that carries the
+failure would make the axis measurable, and §4 of this document already recorded
+our own conversations as a validity threat.
+
+TRAIL is local, human-labelled at span level, and carries a category whose name
+matches this axis. That name match is the whole question, and this project has
+already paid once for assuming it was a construct match: `FM_2_3_*` §15 coded
+TRAIL's `Goal Deviation` justifications and found the category counts **failure
+to carry out the agent's own plan**, not redirection away from the given task.
+The mapping is therefore tested before the axis is re-opened, not after.
+
+### 9.1 Structural facts, measured before this rule was written, with no justification opened
+
+| | |
+|---|---:|
+| TRAIL labels, all categories | 841 over 148 traces |
+| `Instruction Non-compliance` labels, normalised | **156** over **78** traces · base rate **0.5270** |
+| by split | gaia **52 / 117** = 0.4444 · swe_bench **26 / 31** = **0.8387** |
+| positive traces carrying **exactly one** INC label | **45 of 78** (`Goal Deviation`'s figure was 63 of 64) |
+| INC labels per positive trace | 1:45 · 2:16 · 3:5 · 4:4 · 5:3 · 6:3 · 7:1 · 8:1 |
+| median labels per trace, INC-positive / INC-negative | **5 / 5** |
+| `impact` over the 156 | MEDIUM **94** · LOW **46** · HIGH **16** |
+| `location`, `evidence`, `description` present | **156 / 156** each |
+| rationale size | `evidence` median **146** chars (max 1,842) · `description` median **296** (max 537) |
+| distinct INC spans | **154** |
+| INC spans also carrying a `formatting` tag on the **same span** | **18 of 154** |
+| co-occurrence on INC traces | `formatting` 36 (46%) · `goal deviation` 34 (44%) · `language-only` 28 (36%) |
+
+Revision pinned at `b424ce63d5973d5dcd7169b1bc3c07ccdee276d1`, the same snapshot
+§15 used. The 156 are after normalisation: case-folded, whitespace-collapsed,
+`non-compliance` and `non complience` folded to one form, a trailing `Errors?`
+dropped. The category strings were free-typed, which §15 already recorded. Probe
+scripts are diagnostics and are not committed.
+
+Three facts follow, and all three bear on the mapping:
+
+🔴 **The unit mismatches, and differently than it did for FM-2.3.** §2 fixes the
+judged unit as one user turn plus every tool call until the next user turn.
+TRAIL's INC is a **span tag**, and unlike `Goal Deviation` it repeats: **33 of 78**
+positive traces carry two or more, up to eight. A trace-level reading of this tag
+discards what the labeller recorded; a turn-level reading needs a span-to-turn
+map that does not exist yet. Recorded here as the first finding rather than as a
+conclusion — a repeated span tag can still mark genuine disobedience.
+
+**The tag is mostly not severe.** 140 of 156 are MEDIUM or LOW. A mapping that
+holds can still leave a thin pool of the cases a detector would have to be right
+about, so §9.4 reports the coding by `impact` as well as in total.
+
+**The split base rates differ by about two.** 0.8387 on swe_bench against 0.4444
+on gaia, over 31 traces against 117. A pooled rate hides that, so every count in
+§9.4 is reported per split and the two are never summed into one rate.
+
+### 9.2 What has already been read, so the blinding is checkable
+
+At the commit of this section, **no INC `evidence` or `description` string has
+been displayed or read.** The probes above computed counts, string *lengths* and
+`impact` values; `location` values were compared for span collision and their
+contents were not inspected.
+
+One label record was printed in full on 2026-10-01 while establishing the schema
+for §15: gaia parquet row 0, `trace_id 041b7f9c8c76c2ca1a8e67c6769267c3`. It
+carries five labels and **none of them is `Instruction Non-compliance`**, so it
+contributes nothing to the 156.
+
+### 9.3 The coding rule, fixed before reading
+
+Each of the 156 labels is coded into **exactly one** bucket, from TRAIL's own
+`location` + `evidence` + `description`:
+
+- **T — a constraint stated in the task prompt was violated.** Content or form,
+  as long as the request itself states it: an answer-format instruction in the
+  task text, a named prohibition, a required source. Under §2's line this is
+  FM-1.1.
+- **S — the agent's own stated plan or promise was not carried out.** This is the
+  construct §15 found behind `Goal Deviation`. Not FM-1.1.
+- **H — a harness or system convention was violated that the task prompt does not
+  state.** Tool-call schema, the harness answer wrapper, reply language where the
+  harness fixed it, framework role rules. Not FM-1.1 under §2, which requires the
+  constraint to be in the request.
+- **O — not decidable from the three fields.**
+
+Code the span the `evidence` quote is about. Where a trace carries several INC
+labels, each is coded separately and traces are not summarised.
+
+Tie-breaks, fixed now and **in the direction that lowers T**:
+
+- T or H undecided → **H**
+- T or S undecided → **S**
+- any bucket or O undecided → **O**
+
+The reported T is therefore a lower bound, and a pass cannot be produced by
+resolving ambiguity toward the hypothesis.
+
+### 9.4 The decision, fixed before reading
+
+n = **156**, coded in full. No sampling, so there is no draw to report and no
+seed to choose. Counts are reported per split and by `impact`.
+
+| T, share of 156 | what follows |
+|---|---|
+| **≥ 0.70** | TRAIL's INC is a usable FM-1.1 positive pool. Proceed to an axis amendment: sample, drafted labels, judge, the 0.70 precision gate, and the **minimum-positive prediction** that §1 of the results document records as the hole in the original six |
+| **0.40 – 0.70** | usable only under a definition widened to include H. That widening is a separate amendment written **before** any labelling, and the widened axis is no longer §2's line — it must carry a different name |
+| **< 0.40** | the category counts something else. FM-1.1 stays parked on this corpus and the negative result is published as FM-2.3's was |
+
+Three guards:
+
+- **O ≥ 0.30** → the three fields do not carry enough to decide. Report that and
+  do not force a verdict. A check that fails almost everything is first evidence
+  about the check.
+- **The splits disagreeing across a boundary** → the usable pool is the split
+  that passes, not the union.
+- **The 18 spans tagged both INC and `formatting`** are reported as their own
+  line. They are the T/H boundary by construction.
+
+### 9.5 What this cannot settle
+
+- **The 0/40 on our own sessions stands.** Nothing here re-labels those turns or
+  says anything about prevalence in production sessions.
+- Whether a judge can score the axis. That needs the axis amendment and its own
+  gate.
+- Whether TRAIL's labellers applied their own category consistently. The coding
+  reads what they wrote, not whether they were right to write it.
+- Recall of TRAIL's INC tag. Disobedience the labellers did not tag is not
+  bounded here.
+
+### 9.6 Predictions, written before the first rationale is opened
+
+| | prediction |
+|---|---|
+| T | **0.55 – 0.75**, point **0.65** |
+| S | ≤ 0.15 |
+| H | 0.15 – 0.35 |
+| O | ≤ 0.10 |
+| T among the 16 HIGH-impact labels | **≥ 8** |
+| T on swe_bench minus T on gaia | within **0.20** |
+
+🔴 Named in advance — **a pass with a thin pool.** 140 of 156 are MEDIUM or LOW.
+A rule that fires on a low-impact wording slip is the shape `unverified_edit` had
+at 0.3250. If T ≥ 0.70 while HIGH-impact T < 8, the axis amendment states the
+thin-pool limit in its own predictions instead of inheriting this pass.
+
+🔴 Named in advance — **a large S changes more than this axis.** If S is large,
+TRAIL encodes *self-adherence* under at least two category names, which bears on
+what this corpus can support on every axis, not only FM-1.1.
+
+### 9.7 Order of work
+
+1. This section, merged, before any rationale is read. (rule 8)
+2. Read and code all 156 in a diagnostic script (uncommitted), one bucket each,
+   tie-breaks as §9.3.
+3. A results section in this document: raw counts per split and per `impact`, the
+   18 boundary spans, and every prediction in §9.6 scored, including those that
+   fail.
+4. Only then, the axis amendment or the published negative result.
+
+**No judge call. No cost.** The reading is local and the corpus is already on
+disk. TRAIL traces and the derived sheets are not committed — the diagnostics
+convention and TRAIL's no-redistribution gate.
