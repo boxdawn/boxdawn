@@ -19,7 +19,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from clew.cost.pricing import ModelPricing, get_pricing
+from clew.cost.pricing import ModelPricing, get_pricing, tier_input_cost
 from clew.model import Trace
 
 
@@ -196,11 +196,13 @@ def _rate_and_cost_for_call(
         r = int(cache_read or 0)
         w = int(cache_write or 0)
         total = u + r + w
-        total_cost = (
-            u * pricing.base_input_per_mtok
-            + r * pricing.cache_read_per_mtok
-            + w * pricing.cache_write_5m_per_mtok
-        ) / 1_000_000.0
+        total_cost = tier_input_cost(
+            pricing,
+            uncached=u,
+            cache_read=r,
+            cache_write_total=w,
+            cache_write_1h=int(call.get("input_tokens_cache_write_1h") or 0),
+        )
         # Effective per-token rate for apportionment (weighted average).
         eff_rate = (total_cost / total) if total > 0 else 0.0
         return eff_rate, total_cost, pricing

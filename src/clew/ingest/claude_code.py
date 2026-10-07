@@ -307,6 +307,7 @@ def _extract_llm_calls(
     #         as the input_text, then add its own response to accumulated.
     llm_calls: list[dict[str, object]] = []
     accumulated: list[dict[str, object]] = []
+    ttl_mismatch_count = 0
 
     for item in sequence:
         if item["role"] == "user":
@@ -323,14 +324,34 @@ def _extract_llm_calls(
         # Anthropic Claude Code JSONL usage semantics:
         #   input_tokens              = uncached input only
         #   cache_read_input_tokens   = cache-hit portion
-        #   cache_creation_input_tokens = cache-write portion (5m default TTL)
+        #   cache_creation_input_tokens = cache-write portion, both TTLs summed
         # Total input = sum of all three. Cost Attribution Completion prereg §4
         # requires the split for tier-accurate cost — expose all three.
+        #
+        # The TTL is in the source too, under `usage.cache_creation`:
+        # ephemeral_5m_input_tokens / ephemeral_1h_input_tokens. The 1-hour
+        # write bills higher (200% of base for Anthropic vs 125% for 5m), so
+        # summing the two and pricing the total at the 5m rate under-counts.
+        # Reading the sub-object is what makes `cache_write_1h_per_mtok`
+        # reachable; it had no call site before.
         input_tokens_uncached = int(usage.get("input_tokens") or 0)
         input_tokens_cache_read = int(usage.get("cache_read_input_tokens") or 0)
         input_tokens_cache_write = int(
             usage.get("cache_creation_input_tokens") or 0
         )
+        input_tokens_cache_write_1h = 0
+        cache_creation = usage.get("cache_creation")
+        if isinstance(cache_creation, dict):
+            ttl_1h = int(cache_creation.get("ephemeral_1h_input_tokens") or 0)
+            ttl_5m = int(cache_creation.get("ephemeral_5m_input_tokens") or 0)
+            # The sub-object is only trusted when it accounts for the total it
+            # sits under. If it does not, which part carries the 1-hour rate is
+            # undecided, so price the whole write at 5m (the old, lower,
+            # answer) and report the count rather than guessing upward.
+            if ttl_1h + ttl_5m == input_tokens_cache_write:
+                input_tokens_cache_write_1h = ttl_1h
+            else:
+                ttl_mismatch_count += 1
         input_tokens = (
             input_tokens_uncached
             + input_tokens_cache_read
@@ -359,6 +380,7 @@ def _extract_llm_calls(
             "input_tokens_uncached": input_tokens_uncached,
             "input_tokens_cache_read": input_tokens_cache_read,
             "input_tokens_cache_write": input_tokens_cache_write,
+            "input_tokens_cache_write_1h": input_tokens_cache_write_1h,
             "input_cost_rate": input_cost_rate,
             "output_cost_rate": output_cost_rate,
             "cost_rate_legacy": None,
@@ -373,6 +395,7 @@ def _extract_llm_calls(
     return llm_calls, {
         "api_call_merge_count": api_call_merge_count,
         "usage_conflict_count": len(conflict_ids),
+        "cache_creation_ttl_mismatch_count": ttl_mismatch_count,
     }
 
 
@@ -394,11 +417,20 @@ def _build_ingest_notes(
     emitted even when it is 0: once a merge has happened, a reader needs to
     see that the usage copies were checked and agreed, not infer it from an
     absent key. No merge, no keys — a file with nothing to merge stays silent.
+
+    `cache_creation_ttl_mismatch_count` is the opposite case and appears only
+    when non-zero: it means a call's `usage.cache_creation` did not add up to
+    the `cache_creation_input_tokens` above it, so that call's write was
+    priced at the 5-minute rate because the 1-hour share was undecidable.
     """
     notes: dict = {}
     if llm_call_counts.get("api_call_merge_count"):
         notes["api_call_merge_count"] = llm_call_counts["api_call_merge_count"]
         notes["usage_conflict_count"] = llm_call_counts.get("usage_conflict_count", 0)
+    if llm_call_counts.get("cache_creation_ttl_mismatch_count"):
+        notes["cache_creation_ttl_mismatch_count"] = llm_call_counts[
+            "cache_creation_ttl_mismatch_count"
+        ]
     if n_orphan_use_skipped:
         notes["orphan_tool_use_skipped"] = n_orphan_use_skipped
     if no_tool_use_recovery:
