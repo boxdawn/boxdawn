@@ -1,265 +1,303 @@
-# usage 귀속 방식 결정안 — Claude Code 어댑터
+# usage attribution decision — Claude Code adapter
 
-> 상태: **✅ (가) 로 결정됨 (세원님, 2026-10-07). 구현·실측 완료** → §9.
-> 임계값이 생기면 사전등록으로 분리한다.
-> 작성 근거: 2026-10-07 에 공개 분모가 **1.523배 과대**인 것이 확인됐고, 분모만
-> 확정됐다. **분자·비율은 "한 API 콜의 usage 를 하위 콜에 어떻게 귀속하는가" 가
-> 정해져야 산출된다** — 그 결정을 여기서 묻는다.
-> 선행 관계: `STAGE4_AUTOFIX_DESIGN.md` §8 (Stage 4 절감액이 이 경로를 쓴다).
+> Status: **decided as (A) (2026-10-07). Implemented and measured** → §9.
+> If a threshold appears, it splits out into a pre-registration.
+> Why this document: on 2026-10-07 the published denominator was confirmed
+> **1.523x over**, and only the denominator was settled. **The numerator and
+> the ratio cannot be computed until "how one API call's usage is attributed
+> to its sub-calls" is decided** — that is the question this document asked.
+> Depends on: `STAGE4_AUTOFIX_DESIGN.md` §8 (Stage 4's savings use this path).
 
-## 0. 결정이 필요한 한 문장
+## 0. The decision, in one sentence
 
-`llm_calls` 의 한 원소는 **청구되는 API 콜 1건**인가, **탐지에 넣는 입력 1건**인가.
-지금 코드는 **둘을 같은 리스트로 쓰고 있고**, 그 둘이 이 코퍼스에서 **39 ≠ 27** 로 갈린다.
+Is one element of `llm_calls` **one billed API call**, or **one input fed to
+detection**? The code uses the same list for both, and on this corpus the two
+part ways: **39 vs 27**.
 
-## 1. 기제 (코드 확인, 2026-10-07)
+## 1. Mechanism (read from code, 2026-10-07)
 
-원본 JSONL 은 API 콜 1건을 **content block 당 한 줄**로 적고 **모든 줄이 같은 usage
-레코드**를 든다. 어댑터 Pass 1 에 병합 가드가 있다:
+The source JSONL writes one API call as **one line per content block**, and
+**every one of those lines carries the same usage record**. Pass 1 of the
+adapter has a merge guard:
 
-- `src/clew/ingest/claude_code.py:251-257` — `current_asst.get("message_id") == mid`
-  이면 `content` 를 확장한다 (`# Same API call, next content block`).
-- 그런데 `:238` — `etype == "user"` 가 **`_flush_current()` 를 먼저 때린다.**
+- `src/clew/ingest/claude_code.py:251-257` — extends `content` when
+  `current_asst.get("message_id") == mid` (`# Same API call, next content block`).
+- But `:238` — `etype == "user"` hits `_flush_current()` first.
 
-⇒ 중간에 `user` tool_result 가 한 줄이라도 끼면 `current_asst` 가 비워지고, **같은
-`message.id` 의 다음 블록이 "새 콜 + usage 전체 사본"으로 시작한다.** 병렬/연속
-tool call 모양에서 발동한다.
+⇒ A single intervening `user` tool_result line empties `current_asst`, and
+**the next block of the same `message.id` starts as a new call carrying a full
+copy of the usage.** It fires on parallel/sequential tool-use shapes.
 
-실측 (`msg_01MwTSZsxhZnFzS2DHbWoe7k`, 6줄 전부 `in 6 / read 36,177 / write 6,629 / out 1,224`):
-`assistant[thinking] assistant[text] assistant[tool_use]` → 콜1 / `user[tool_result]` →
-flush / `assistant[tool_use]` → **콜2** / … ⇒ **1 API 콜이 4 `llm_calls`.**
+Measured (`msg_01MwTSZsxhZnFzS2DHbWoe7k`, all 6 lines `in 6 / read 36,177 /
+write 6,629 / out 1,224`): `assistant[thinking] assistant[text]
+assistant[tool_use]` → call 1 / `user[tool_result]` → flush /
+`assistant[tool_use]` → **call 2** / … ⇒ **one API call became 4 `llm_calls`.**
 
-🔴 **판정 기준은 `message.id` 다.** 중복 콜은 `input_text` 가 서로 다르다(대화가
-자란다). 입력이 다른 것을 보고 "별개 콜" 로 판단하면 틀린다.
+🔴 **`message.id` is the deciding field.** The duplicate calls have *different*
+`input_text` (the conversation grows), so judging "separate call" from the
+differing input is wrong.
 
-### 어디까지 번지나 (소비자 전수)
+### How far it spreads (all consumers)
 
-| 소비자 | 코드 | 중복이 하는 일 |
+| Consumer | Code | What duplication does |
 |---|---|---|
-| 분모 (비용) | `metrics/waste_rate.py:134-141` — 콜마다 `input_cost_for_call` 합산 | usage 사본마다 **전액 가산** |
-| 분모 (바이트) | `metrics/waste_rate.py:131-132` — 콜마다 `input_text` 바이트 합산 | 🔴 **바이트 분모도 같이 부푼다**(비용만이 아니다) |
-| 분자 | `(콜, 청크)` 플래그 = `resent_events` | 콜이 늘면 **플래그 건수가 늘어난다** (`1,720`) |
-| 지목 | `report/markdown.py:651-668` — `ev.llm_span_id` 로 묶어 비용 합산 | 중복 많은 id 가 **상위로 올라간다** |
+| denominator (cost) | `metrics/waste_rate.py:134-141` — sums `input_cost_for_call` per call | **adds the full amount per usage copy** |
+| denominator (bytes) | `metrics/waste_rate.py:131-132` — sums `input_text` bytes per call | 🔴 **the byte denominator inflates too**, not only cost |
+| numerator | `(call, chunk)` flags = `resent_events` | **flag count grows with call count** (`1,720`) |
+| the pointing | `report/markdown.py:651-668` — groups by `ev.llm_span_id`, sums cost | **ids with more duplicates rise to the top** |
 
-## 2. 실측 영향 (2026-10-07)
+## 2. Measured impact (2026-10-07)
 
-| | 어댑터가 세는 값 | 고유 `message.id` 27건 | 배수 |
+| | What the adapter counts | Unique `message.id`, 27 | Factor |
 |---|---:|---:|---:|
-| cache_read | 2,097,279 | 1,512,529 | 1.39× |
-| cache_write | 141,256 | 83,930 | 1.68× |
-| output | 23,717 | 15,061 | 1.57× |
+| cache_read | 2,097,279 | 1,512,529 | 1.39x |
+| cache_write | 141,256 | 83,930 | 1.68x |
+| output | 23,717 | 15,061 | 1.57x |
 
-| `total_analyzed_cost` | 값 |
+| `total_analyzed_cost` | Value |
 |---|---|
-| 현행 = **공개값** | **$2.5248795** |
-| API 콜 1회만 | **$1.6576570** ← **1.523배 과대** |
-| API 콜 1회만 + TTL 1h | $1.9723945 |
+| current = **published** | **$2.5248795** |
+| one charge per API call | **$1.6576570** ← **1.523x over** |
+| one charge per API call + TTL 1h | $1.9723945 |
 
-| | 콜 | 재전송 토큰 | 전체 토큰 | 비율 | 청크 |
+| | calls | resent tokens | total tokens | ratio | chunks |
 |---|---|---|---|---|---|
-| **현행 = 공개값** | 39 | 2,056,739 | 2,238,628 | **91.9%** | **1,720** |
-| 고유·**첫 유지** | 27 | 1,415,396 | 1,596,520 | 88.7% | 1,231 |
-| 고유·끝 유지 | 27 | 1,419,156 | 1,596,520 | 88.9% | 1,255 |
+| **current = published** | 39 | 2,056,739 | 2,238,628 | **91.9%** | **1,720** |
+| unique, **keep first** | 27 | 1,415,396 | 1,596,520 | 88.7% | 1,231 |
+| unique, keep last | 27 | 1,419,156 | 1,596,520 | 88.9% | 1,255 |
 
-★ **두 재구성이 88.655 / 88.891 로 거의 같다 ⇒ 방향·크기는 재구성 선택에 둔감하다.**
-🔴 이 값들은 **출하 동작이 아니라 결함 크기 지시값**이다. 중복 콜을 버리면 비교 입력이
-줄어 **탐지가 달라진다** — 회계 보정이 아니라 **동작 변경**이다.
+★ **The two reconstructions land at 88.655 / 88.891 ⇒ direction and magnitude
+are insensitive to which one is picked.**
+🔴 These are **defect-size indicators, not shipped behavior.** Dropping the
+duplicate calls removes comparison inputs, so **detection differs** — a
+behavior change, not an accounting correction.
 
-🔴 **쓰기 토큰 숫자가 셋이다**: 322,360(원본 72줄 합산) / 141,256(어댑터 39콜) /
-**83,930(고유 27콜 = 실제 청구)**. 앞의 둘로 비용 계산 금지.
+🔴 **There are three cache-write numbers**: 322,360 (all 72 source lines
+summed) / 141,256 (the adapter's 39 calls) / **83,930 (27 unique calls = what
+was actually billed)**. Do not compute cost from the first two.
 
-## 3. 후보 셋
+## 3. The three candidates
 
-### (가) `llm_calls` = **API 콜 1건** — 같은 `message.id` 를 한 원소로 병합
-
-| | |
-|---|---|
-| 분모 | ✅ 자동으로 맞는다 (usage 가 콜당 1회) |
-| 분자·플래그 | ✅ **따로 귀속 규칙을 발명할 필요가 없다** — `(콜, 청크)` 가 27콜 위에서 세어진다 |
-| 지목 | ✅ `span_id` 가 `message.id` 와 1:1 이 되어 Top offenders 합산이 정직해진다 |
-| 비용 | 🔴 **동작 변경** — 탐지 입력이 39→27. 재측정·재승인 필요 |
-| 구현 | Pass 1 에서 `user` 를 버퍼링하거나, `llm_calls` 사후 병합 패스 |
-
-**(가) 는 §2 의 "고유·첫 유지" 재구성과 같은 것이다** — 병합 시 `input_text` 가 첫 블록
-직전 상태가 되므로. 즉 **이미 측정된 선택지**다. 그리고 그게 사실에 맞다: 실제 API
-콜은 그 입력으로 **한 번** 일어났고, 중간 tool_result 는 콜이 **반환된 뒤**에 생겼다.
-
-### (나) 39콜 유지 + usage 를 블록들에 **분배(prorate)**
+### (A) `llm_calls` = **one API call** — merge the same `message.id` into one element
 
 | | |
 |---|---|
-| 분모 | ✅ 합계는 맞는다 |
-| 분자·플래그 | 🔴 **별도 결정이 필요하다** — 청크 플래그는 토큰이 아니라 건수라 분배가 정의되지 않는다 |
-| 지목 | ✅ `span_id` 합산이면 복원된다 |
-| 비용 | 🔴 **어느 콜도 실제 청구값을 들지 않는다** — 콜 단위로 "청구서와 대조" 가 불가능해진다 |
-| 구현 | 분배 축(output 토큰? 균등?)을 또 고르게 된다 |
+| denominator | ✅ correct by construction (usage counted once per call) |
+| numerator / flags | ✅ **no separate attribution rule to invent** — `(call, chunk)` is counted over 27 calls |
+| the pointing | ✅ `span_id` becomes 1:1 with `message.id`, so the Top-offenders sum is honest |
+| cost | 🔴 **behavior change** — detection input drops 39→27. Needs re-measurement and re-approval |
+| implementation | buffer `user` entries in Pass 1, or a post-pass merge over `llm_calls` |
 
-### (다) 39콜 유지 + **첫 블록에만 usage, 나머지 0**
+**(A) is the same thing as §2's "unique, keep first" reconstruction** — merging
+leaves `input_text` at the state before the first block. So it is **the option
+already measured**. And it matches the facts: the real API call happened
+**once** with that input, and the intervening tool_result came into being
+**after the call returned**.
+
+### (B) Keep 39 calls, **prorate** usage across the blocks
 
 | | |
 |---|---|
-| 분모 | ✅ 합계 맞음 · 구현 최소 |
-| 분자·플래그 | 🔴 **`1,720` 이 그대로 남는다** (건수는 콜 수에 비례) |
-| 지목 | 🔴 0-usage 콜이 "무료 콜" 로 보인다 · 콜별 요율 계산에 0 분모가 생긴다 |
-| 비용 | 🔴 **같은 리포트 안에 "콜 39건" 과 "청구 27건" 이 공존한다** |
+| denominator | ✅ the total is right |
+| numerator / flags | 🔴 **needs its own decision** — a chunk flag is a count, not tokens, so prorating is undefined for it |
+| the pointing | ✅ restored if summed by `span_id` |
+| cost | 🔴 **no call carries the actually-billed value** — per-call reconciliation against the invoice becomes impossible |
+| implementation | you then have to pick a prorating axis (output tokens? even split?) |
 
-## 4. 권고 — **(가)**
+### (C) Keep 39 calls, **usage on the first block only, 0 on the rest**
 
-이유 셋.
+| | |
+|---|---|
+| denominator | ✅ total right, smallest change |
+| numerator / flags | 🔴 **`1,720` stays** (a count scales with call count) |
+| the pointing | 🔴 a 0-usage call reads as a free call; per-call rate math gets a zero denominator |
+| cost | 🔴 **"39 calls" and "27 charges" coexist inside one report** |
 
-1. **분자 결정이 따라온다.** (나)·(다) 는 분모를 고쳐도 `(콜, 청크)` 플래그 건수를
-   **또 결정해야** 한다. (가) 는 단위가 하나로 정해지면서 분자·분모·지목이 **동시에**
-   정해진다. 지금 막혀 있는 것이 정확히 그 분자다.
-2. **청구서와 대조 가능한 단위가 남는다.** `message.id` = 청구 횟수다. (나) 는 그
-   대조선을 없앤다.
-3. **지목이 사용자가 고칠 대상을 고르는 자리다.** 상위 5개 중 3개 교체(60%)가 이
-   결함의 가장 센 보류 근거였고, (가) 는 그걸 구조적으로 막는다.
+## 4. Recommendation — **(A)**
 
-🔴 **(가) 는 회계 보정이 아니라 동작 변경이다.** 승인하면 탐지 입력이 39→27 로 줄고,
-`91.9%` 는 폐기되고 새 값이 재측정으로 나온다. **"같은 수치가 더 정확해진다" 가 아니라
-"다른 수치가 나온다" 다.**
+Three reasons.
 
-## 5. (가) 를 택할 때 필요한 가드 (결함 전수 통과를 막는다)
+1. **The numerator decision follows.** (B) and (C) fix the denominator and
+   then still require a *second* decision about the `(call, chunk)` flag
+   count. (A) settles numerator, denominator and pointing **at once** by
+   fixing the unit. The numerator is exactly what is blocked right now.
+2. **A unit that can be reconciled with the invoice survives.**
+   `message.id` = number of charges. (B) removes that reference line.
+3. **The pointing is where a user picks what to fix.** 3 of the top 5
+   replaced (60%) was the strongest reason to hold the live numbers, and (A)
+   prevents that shape structurally.
 
-2026-10-06 교훈: 미결정이 조용히 한쪽으로 흡수되면 가드가 `0.0000` 으로 통과한다.
-⇒ **병합 발동 건수와 판정 불가 건수를 세서 같이 낸다.**
+🔴 **(A) is a behavior change, not an accounting correction.** Approving it
+drops the detection input 39→27; `91.9%` is retired and a new value comes from
+re-measurement. **Not "the same number gets more accurate" but "a different
+number comes out."**
 
-- `api_call_merge_count` — 병합으로 줄어든 콜 수 (이 코퍼스 **39 → 27 = 12**)
-- `usage_conflict_count` — 같은 `message.id` 인데 usage 레코드가 **서로 다른** 건수
-  🔴 **0 이어야 한다.** 0 이 아니면 어느 줄이 청구값인지 미결이므로 **조용히 첫
-  줄을 고르지 않는다** — 건수를 리포트에 띄우고 멈춘다.
+## 5. Guards required if (A) is taken (so a defect cannot pass everything)
 
-**이 코퍼스 실측 (2026-10-07, 원본 JSONL 직독):**
+Lesson from 2026-10-06: when undecidability is quietly absorbed to one side, a
+guard passes at `0.0000`. ⇒ **Count how often the merge fired and how often the
+billed line was undecidable, and report both.**
 
-| | 값 |
+- `api_call_merge_count` — calls removed by merging (this corpus: **39 → 27 = 12**)
+- `usage_conflict_count` — ids where the repeated usage records **disagree**
+  🔴 **It must be 0.** If it is not, which line holds the charge is undecided,
+  so **do not quietly take the first one** — surface the count in the report.
+
+**Measured on this corpus (2026-10-07, reading the source JSONL directly):**
+
+| | Value |
 |---|---:|
-| assistant 줄 수 | **72** |
-| 고유 `message.id` | **27** (id 없는 줄 0) |
-| 현행 어댑터 `llm_calls` | **39** |
+| assistant lines | **72** |
+| unique `message.id` | **27** (0 lines without an id) |
+| current adapter `llm_calls` | **39** |
 | `api_call_merge_count` | **12** |
 | `usage_conflict_count` | **0** |
 
-★ `usage_conflict_count = 0` 은 **검사기가 안 돈 게 아니라 실제로 센 값**이다 — 27개
-id 를 전부 돌면서 `input_tokens`·`cache_read`·`cache_creation`·`output_tokens` 4개
-필드의 서로 다른 조합 수를 셌고, 모든 id 가 조합 1개였다. ⇒ **(가) 의 "어느 줄을
-고르는가" 는 이 코퍼스에서 공문제다.** 다른 코퍼스에서는 다시 세야 한다.
-🔴 **전수 통과도 버그의 모양이다** — 그래서 이 값은 상시 출력 필드로 남긴다.
+★ `usage_conflict_count = 0` is **a counted value, not a check that never
+ran** — all 27 ids were walked and the number of distinct
+(`input_tokens`, `cache_read`, `cache_creation`, `output_tokens`) combinations
+was counted per id; every id had exactly one. ⇒ **"which line do we pick" is a
+non-question on this corpus.** It has to be recounted on any other corpus.
+🔴 **Passing everything is also the shape of a bug** — which is why this value
+stays a permanently emitted field.
 
-🔴 **휴리스틱으로 고치지 않는다.** `cost/amplification.py:66-72` 의
-`_prev_equals_next` 는 캐시 필드 두 개가 같은지로 usage 반복을 거른다 — **그 지식이
-이미 저장소에 있지만** 그것은 추정이고 `message.id` 는 근거다. 이 결함을
-`_prev_equals_next` 로 메우면 **같은 usage 를 가진 서로 다른 콜**을 잘못 지운다.
-🔴 **(가) 는 amplification 경로를 고치지 않는다** (2026-10-07 실측으로 정정 — 처음에
-"같은 PR 에서 집계가 움직인다" 고 적었는데 **틀렸다**). `_collect_cc_usage_metadata`
-는 `llm_calls` 를 보지 않고 **원본 `entries` 를 직접** 훑는다. 수정 후에도:
+🔴 **Do not fix this with a heuristic.** `cost/amplification.py:66-72`'s
+`_prev_equals_next` filters repeated usage by comparing two cache fields —
+**that knowledge is already in the repo**, but it is an inference where
+`message.id` is ground truth. Patching this defect with `_prev_equals_next`
+would wrongly erase two genuinely distinct calls that happen to share usage.
 
-| | 값 |
+🔴 **(A) does not fix the amplification path** (corrected by measurement on
+2026-10-07 — this section first claimed "the aggregate moves in the same PR",
+which was **wrong**). `_collect_cc_usage_metadata` never looks at `llm_calls`;
+it walks the **raw `entries`**. After the fix:
+
+| | Value |
 |---|---:|
-| `cc_total_turns` | **72** ← assistant **줄** 수. API 콜은 27 |
+| `cc_total_turns` | **72** ← assistant **lines**. API calls are 27 |
 | `cc_usage_pair` | 45 |
-| `prev==next` 스킵 | 21 / 45 = **46.7%** |
-| `llm_calls` (수정됨) | 27 |
+| `prev==next` skips | 21 / 45 = **46.7%** |
+| `llm_calls` (fixed) | 27 |
 
-⇒ **같은 복제 결함이 그 자리에 그대로 있다.** `cc_total_turns` 는 "턴" 이라는 이름으로
-**content block 줄 수**를 세고, 인접 두 줄의 usage 가 같은 것(= 한 콜의 복제본)을
-`prev==next` 가 걸러내고 있다 — 근본 원인을 모른 채 증상만 막고 있던 셈이다.
-**별건으로 처리한다**(§9.5).
+⇒ **The same replication defect sits there untouched.** `cc_total_turns`
+counts **content-block lines** under the name "turns", and `prev==next` is
+filtering out adjacent lines with equal usage (i.e. copies of one call) —
+suppressing the symptom without naming the cause. **Handled separately** (§9.5).
 
-## 6. 범위 밖 — 이 문서가 **결정하지 않는** 것
+## 6. Out of scope — what this document does **not** decide
 
-- **TTL 1h 미독**(원본 `usage.cache_creation.ephemeral_1h_input_tokens` 를 안 읽음).
-  **별개 결함 · 방향은 과소.** 2026-10-07 재실측: `cache_creation` 하위객체를 든 줄
-  **72/72** · `ephemeral_1h` 합계 **322,360** · `ephemeral_5m` 합계 **0**.
-  🔴 그 `322,360` 은 **72줄 전부 합산(중복 포함)** 값이다 — 고유 27콜 기준 실제 청구
-  쓰기는 **83,930**. 두 결함이 **같은 필드에서 겹치므로** TTL 을 먼저 고치면 그 금액이
-  중복만큼 또 부푼다. ⇒ **(가) 가 TTL 수정보다 앞이다.**
-- **혼합 분배 요율**(재전송분이 cache_write 지분을 떠안아 캐시읽기 바닥의 1.6193배).
-  **별개 결함 · 방향은 과대.**
-- 라이브 수치 교체 문면 (웹 소관) · 금지 문면 갱신 (마케팅 소관).
+- **TTL 1h unread** (the source's
+  `usage.cache_creation.ephemeral_1h_input_tokens` is never read).
+  **Separate defect, direction is under-counting.** Re-measured 2026-10-07:
+  lines carrying the `cache_creation` sub-object **72/72**, `ephemeral_1h`
+  total **322,360**, `ephemeral_5m` total **0**.
+  🔴 That `322,360` is the **sum over all 72 lines (duplicates included)** —
+  on 27 unique calls the actually-billed write is **83,930**. The two defects
+  **overlap on the same field**, so fixing TTL first inflates that amount by
+  the duplication again. ⇒ **(A) comes before the TTL fix.**
+- **Blended distribution rate** (resent share carries cache_write weight,
+  1.6193x the cache-read floor). **Separate defect, direction is
+  over-counting.**
+- Live-number replacement copy (web's scope) and prohibited-phrase updates
+  (marketing's scope).
 
-🔴 **세 결함의 방향이 같지 않다**: 중복 **과대** · TTL **과소** · 혼합요율 **과대**.
-부분 상쇄되어 총액이 틀려 보이지 않았다. **어느 한 방향으로도 서술 금지.**
-🔴 배수를 쓸 때 분모를 붙인다: 중복만 고치면 **1.523배**, 중복+TTL 둘 다면 **1.280배**.
+🔴 **The three defects do not point the same way**: duplication **over**, TTL
+**under**, blended rate **over**. They partially cancel, which is why the
+total never looked wrong. **Do not describe them as having one direction.**
+🔴 When quoting a factor, name the denominator: fixing duplication alone is
+**1.523x**; fixing duplication and TTL together is **1.280x**.
 
-## 7. 순서 (권고)
+## 7. Order (recommended)
 
-1. ✅ **(가)/(나)/(다) 결정** — (가) 로 결정됨 (2026-10-07) → §9
-2. ✅ **어댑터 수정 + §5 가드 2개 + `usage_conflict_count = 0` 실측** → §9.1~9.2
-3. 🔴 **전 코퍼스 재측정** — `91.9%` 계열 폐기, 새 값 산출. **이름에 단위를 넣어 낸다**
-   (API 콜 수 / 재구성 콜 수 / `(콜, 청크)` 플래그 건수 / 토큰·달러 — 2026-10-07 에
-   엔진 3건·마케팅 1건이 같은 원인으로 틀렸다)
-4. TTL · 혼합요율은 별건으로 각각
-5. 공개 수치 교체 통보 (웹·마케팅)
+1. ✅ **Decide (A)/(B)/(C)** — decided as (A) (2026-10-07) → §9
+2. ✅ **Adapter fix + the two §5 guards + `usage_conflict_count = 0` measured** → §9.1-9.2
+3. 🔴 **Re-measure the whole corpus** — retire the `91.9%` family, produce new
+   values. **Put the unit in the name** (API call count / reconstructed call
+   count / `(call, chunk)` flag count / tokens and dollars — on 2026-10-07
+   three engine statements and one marketing statement were wrong from this
+   one cause)
+4. TTL and blended rate, each as its own change
+5. Notify about the replaced public numbers (web, marketing)
 
-🔴 **이 결함은 `cost_accuracy_flag = "accurate"` 상태로 일어났다** — 라이브에 틀린
-숫자와 "정확함" 표시가 함께 서 있다. 그 플래그는 **티어 필드의 존재**만 본다.
-`accurate` 를 정확성 근거로 인용 금지.
+🔴 **This defect happened with `cost_accuracy_flag = "accurate"`** — a wrong
+number and an "accurate" label stand together in production. That flag only
+looks at **whether the tier fields are present**. Do not cite `accurate` as
+evidence of accuracy.
 
-## 8. 재현
+## 8. Reproduction
 
-- 어댑터 경로: Claude Code 어댑터는 **`preprocess_trace` 를 타지 않는다**(어댑터가
-  `llm_calls` 를 직접 만든다 · 통과시키면 `llm_calls` 가 39→0).
-- 트레이스: `data/hf_agent_traces/agent-race/claude-code.jsonl`
-  (`trace_id = 7f309fce-093f-412d-be64-cbd2860481f3` · 모델 `claude-opus-4-7`).
-  🔴 **이것이 홈 `91.9%` 와 인용 리포트의 같은 트레이스다** — 따로 구할 것 없음.
-- 🔴 `span_id` 그룹핑은 이중계산(39콜인데 `span_id` 27개). **이벤트 단위로 합산.**
+- Adapter path: the Claude Code adapter **does not go through
+  `preprocess_trace`** (it builds `llm_calls` directly; sending it through
+  takes `llm_calls` from 39 to 0).
+- Trace: `data/hf_agent_traces/agent-race/claude-code.jsonl`
+  (`trace_id = 7f309fce-093f-412d-be64-cbd2860481f3`, model `claude-opus-4-7`).
+  🔴 **This is the same trace behind the `91.9%` on the home page and in the
+  cited report** — nothing else needs to be obtained.
+- 🔴 Grouping by `span_id` double-counts (39 calls but 27 `span_id`s).
+  **Sum per event.**
 
 ---
 
-## 9. ✅ 결정 · 구현 · 실측 (2026-10-07)
+## 9. Decision, implementation, measurement (2026-10-07)
 
-**세원님 결정: (가).** `llm_calls` 의 한 원소 = **청구되는 API 콜 1건**.
+**Decision: (A).** One element of `llm_calls` = **one billed API call**.
 
-### 9.1 구현
+### 9.1 Implementation
 
-`src/clew/ingest/claude_code.py` Pass 1 을 **인접 기준 → id 기준** 병합으로 바꿨다.
-그룹은 `sequence` 안 제자리를 지키므로 Pass 2 가 잡는 `input_text` 는 그 콜의 **첫
-블록 직전 상태** — API 가 실제로 본 입력이고, 중간 tool_result 는 콜이 반환된 뒤의
-일이다(= §2 표의 "고유·첫 유지").
+Pass 1 of `src/clew/ingest/claude_code.py` now merges **by id instead of by
+adjacency**. The group keeps its position in `sequence`, so the `input_text`
+Pass 2 snapshots is the state **before that call's first block** — the input
+the API actually saw, with the intervening tool_result being something that
+happened after the call returned (= the "unique, keep first" row in §2).
 
-🔴 **이것은 어댑터가 이미 문서로 약속한 것이었다.** `_extract_llm_calls` docstring
-첫 줄이 *"one entry per unique Anthropic API call (identified by `message.id`)"* 인데
-구현 주석은 *"consecutive"* 였다 — **같은 docstring 안에서 두 문장이 어긋나 있었고**
-아무도 그 둘을 대조하지 않았다. 계약 층위에서는 버그 수정이다.
-🔴 **그래도 출하 수치는 바뀐다** — "계약대로 고쳤을 뿐" 으로 수치 변경을 덮지 말 것.
+🔴 **This is what the adapter had already promised in writing.** The first
+line of the `_extract_llm_calls` docstring reads *"one entry per unique
+Anthropic API call (identified by `message.id`)"* while the implementation
+comment said *"consecutive"* — **two sentences disagreed inside the same
+docstring** and nobody compared them. At the contract level this is a bug fix.
+🔴 **The shipped numbers still change** — do not use "it only did what the
+contract said" to cover a change in the numbers.
 
-### 9.2 가드 (§5) 실측
+### 9.2 Guards (§5), measured
 
-| 필드 | 값 | 비고 |
+| Field | Value | Note |
 |---|---:|---|
-| `api_call_merge_count` | **12** | 27 + 12 = **39** = 구버전 콜 수와 일치 |
-| `usage_conflict_count` | **0** | 27개 id 전수 대조 |
+| `api_call_merge_count` | **12** | 27 + 12 = **39** = the old call count |
+| `usage_conflict_count` | **0** | all 27 ids compared |
 
-★ `27 + merge = 구버전 콜 수` 가 **자가 검산식**이다. 구버전을 `git show HEAD:` 로
-실제 실행해 39 를 받아 대조했다.
+★ `27 + merge == the old call count` is **a self-check**. The old version was
+actually run via `git show HEAD:` to obtain the 39 for comparison.
 
-🔴 **이 검산이 바로 카운터 버그를 잡았다.** 첫 구현이 `13` 을 냈고(예상 12), 원인은
-재오픈 시 `last_item` 을 갱신하지 않아 `A(X) → user → A(X) → A(X)` 모양의 3번째 줄이
-**두 번째 재오픈으로 중복 계수**된 것이었다. 구버전은 그 줄을 인접 병합하므로 콜이
-늘지 않는다. **예상값을 먼저 적지 않았으면 13 을 그대로 실었다.**
+🔴 **That self-check is what caught a counter bug.** The first implementation
+reported `13` against a predicted 12; the cause was not recording a reopened
+group as the last-written item, so the third line of
+`A(X) → user → A(X) → A(X)` **counted as a second reopen**. The old code
+merges that line by adjacency, so it adds no call. **Without writing the
+prediction down first, the 13 would have shipped.**
 
-### 9.3 수치 변화 (인용 트레이스, 실행 1회)
+### 9.3 Number changes (cited trace, one run)
 
-| | 전(공개값) | 후 | |
+| | before (published) | after | |
 |---|---:|---:|---|
 | `llm_calls` | 39 | **27** | |
-| `total_analyzed_cost` | $2.5248795 | **$1.657657** | 예측 $1.6576570 **일치** |
+| `total_analyzed_cost` | $2.5248795 | **$1.657657** | predicted $1.6576570, **matches** |
 | `total_llm_input_cost` | $1.9319545 | **$1.281132** | |
-| 재전송 토큰 | 2,056,739 | **1,415,467** | |
-| 전체 토큰 | 2,238,628 | **1,596,520** | 일치 |
-| 재전송 비율 | 91.9% | **88.7%** | |
-| 재전송 금액 | $1.6652490 | **$1.031040** | |
-| `(콜, 청크)` 플래그 | 1,720 | **1,050** | 🔴 §2 재구성 예측 **1,231** 과 다름 |
+| resent tokens | 2,056,739 | **1,415,467** | |
+| total tokens | 2,238,628 | **1,596,520** | matches |
+| resent ratio | 91.9% | **88.7%** | |
+| resent cost | $1.6652490 | **$1.031040** | |
+| `(call, chunk)` flags | 1,720 | **1,050** | 🔴 differs from §2's reconstruction, **1,231** |
 | `cost_accuracy_flag` | accurate | accurate | |
 
-🔴 **재구성 예측이 두 자리에서 빗나갔다**: 청크 **1,231 → 실제 1,050**(−181),
-재전송 토큰 **1,415,396 → 실제 1,415,467**(+71). 비율 88.7% 와 분모 1,596,520 은
-맞았다. ⇒ **§2 의 재구성값은 결함 크기 지시값이지 예측값이 아니다** — 문서가 그렇게
-적고 있었고 실제로 그랬다. **1,231 을 인용한 곳이 있으면 1,050 으로 고친다.**
+🔴 **The reconstruction missed in two places**: chunks **1,231 → actually
+1,050** (-181), resent tokens **1,415,396 → actually 1,415,467** (+71). The
+ratio 88.7% and the denominator 1,596,520 were right. ⇒ **§2's reconstructions
+are defect-size indicators, not predictions** — the document said so, and that
+is how it turned out. **Anywhere 1,231 was quoted, correct it to 1,050.**
 
-### 9.4 Top offenders — 지목이 실제로 바뀌었다
+### 9.4 Top offenders — the pointing really did change
 
-| 순위 | 전(39콜) | 금액 | 후(27콜) | 금액 |
+| Rank | before (39 calls) | cost | after (27 calls) | cost |
 |---|---|---:|---|---:|
 | 1 | `msg_01S2rT` | $0.253172 | **`msg_01S2rT`** | **$0.125574** |
 | 2 | `msg_01MwTS` | $0.206537 | `msg_01EgXB` | $0.059813 |
@@ -267,14 +305,19 @@ id 를 전부 돌면서 `input_tokens`·`cache_read`·`cache_creation`·`output_
 | 4 | `msg_011ZR8` | $0.133689 | `msg_011yRB` | $0.053635 |
 | 5 | `msg_01K8ws` | $0.092611 | `msg_01GmBJ` | $0.046411 |
 
-1위는 **자리를 지키고 금액이 절반**이 됐다(중복 2회분). 2·3·4위는 전부 교체.
-🔴 **"1·2위가 중복 산물" 은 1위에 대해 과한 진술** — 1위는 순위가 맞았다.
+Rank 1 keeps its place at half the money (two duplicates' worth). Ranks 2-4
+are all replaced.
+🔴 **"ranks 1 and 2 were duplication artifacts" overstates it for rank 1** —
+rank 1's position was correct.
 
-### 9.5 남은 것
+### 9.5 What is left
 
-- **TTL 1h 미독** · **혼합 분배 요율** — 미수정(§6). 이제 중복이 빠졌으므로 TTL 수정의
-  영향도 다시 재야 한다(이전 추정 $1.9723945 는 **중복 제거 전 기준**).
-- 🔴 **amplification 경로는 안 고쳐졌다** — `cc_total_turns = 72` 가 수정 후에도 그대로다
-  (§5). 같은 복제가 "턴 수" 라는 이름으로 남아 있고 `prev==next` 가 증상만 막고 있다.
-  **별건 · 미수정.** 이 PR 이 그것을 고쳤다고 쓰지 말 것.
-- 공개 수치 교체 통보(웹·마케팅) — **`91.9%`·`1,720`·`$2.5248795` 는 폐기값**.
+- **TTL 1h unread** and the **blended distribution rate** remain unfixed (§6).
+  With duplication now removed, the TTL fix has to be re-measured as well (the
+  earlier $1.9723945 estimate was computed **before** dedup).
+- 🔴 **The amplification path was not fixed** — `cc_total_turns` is still 72
+  after this change (§5). The same replication survives there under the name
+  "turn count", with `prev==next` suppressing the symptom. **Separate, open.**
+  Do not write that this PR fixed it.
+- Notify web and marketing about the replaced public numbers — **`91.9%`,
+  `1,720` and `$2.5248795` are retired values.**
