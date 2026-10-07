@@ -247,3 +247,83 @@ def test_no_assistant_turns_returns_empty_llm_calls(tmp_path):
     # Use empty-tool recovery: no_tool_use path returns root-only Trace (§29.1).
     trace = ingest_claude_code_jsonl(p)
     assert trace.metadata["llm_calls"] == []
+
+
+def _same_id_block_after_tool_result() -> list[dict[str, Any]]:
+    """One API call whose blocks straddle the tool_result line it produced.
+
+    This is the real Claude Code shape for parallel/sequential tool use: the
+    assistant's tool_use block is written, the tool runs and its result is
+    written as a `user` line, and the next content block of the SAME API call
+    follows. Every one of those assistant lines repeats the same usage record.
+    """
+    entries = _base_session_entries()
+    entries.append({
+        "type": "assistant",
+        "sessionId": "sess-A",
+        "uuid": "a-1c",
+        "timestamp": "2026-01-01T00:00:03.000Z",
+        "message": {
+            "id": "msg_001",  # same API call as the first assistant entry
+            "model": "claude-sonnet-4-6",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "second block"}],
+            "usage": {
+                "input_tokens": 100,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "output_tokens": 40,
+            },
+        },
+    })
+    return entries
+
+
+def test_same_message_id_across_tool_result_is_one_call(tmp_path):
+    """A user tool_result between two blocks does not split one API call.
+
+    Grouping on adjacency alone restarted the group here and added the
+    repeated usage a second time: on the cited trace that counted 39 calls
+    for 27 billed ones and inflated total_analyzed_cost by 1.523x.
+    """
+    p = _write_jsonl(tmp_path, _same_id_block_after_tool_result())
+    trace = ingest_claude_code_jsonl(p)
+
+    calls = trace.metadata["llm_calls"]
+    assert len(calls) == 1
+    # The charge is counted once, not once per content block.
+    assert calls[0]["input_tokens"] == 100
+    assert calls[0]["output_tokens"] == 40
+
+
+def test_reopened_group_reports_its_count_and_a_clean_usage_check(tmp_path):
+    """The merge is reported, and so is the 0 that says the copies agreed."""
+    p = _write_jsonl(tmp_path, _same_id_block_after_tool_result())
+    notes = ingest_claude_code_jsonl(p).metadata["ingest_notes"]
+
+    assert notes["api_call_merge_count"] == 1
+    assert notes["usage_conflict_count"] == 0
+
+
+def test_disagreeing_usage_copies_are_counted_not_hidden(tmp_path):
+    """Same id, different usage: still one call, but the conflict is surfaced.
+
+    Which line is the billed one is undecided in that shape, so the count has
+    to reach the report instead of being absorbed by picking the first.
+    """
+    entries = _same_id_block_after_tool_result()
+    entries[-1]["message"]["usage"]["cache_read_input_tokens"] = 777
+    p = _write_jsonl(tmp_path, entries)
+    trace = ingest_claude_code_jsonl(p)
+
+    assert len(trace.metadata["llm_calls"]) == 1
+    assert trace.metadata["ingest_notes"]["usage_conflict_count"] == 1
+
+
+def test_file_with_nothing_to_merge_stays_silent(tmp_path):
+    """No reopened group, no keys — the ordinary file reports nothing."""
+    p = _write_jsonl(tmp_path, _base_session_entries())
+    notes = ingest_claude_code_jsonl(p).metadata["ingest_notes"]
+
+    assert "api_call_merge_count" not in notes
+    assert "usage_conflict_count" not in notes
