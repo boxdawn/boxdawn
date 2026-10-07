@@ -182,12 +182,13 @@ def _collect_cc_usage_metadata(
 
 
 # Schema source: docs/CONTEXT_RESEND_DETECTOR_PREREG.md §3 (frozen contract).
+# Grouping decision (API call, not block): docs/CC_USAGE_ATTRIBUTION_DECISION.md
 def _extract_llm_calls(
     entries: list[dict],
     *,
     input_cost_table: dict[str, float] | None,
     output_cost_table: dict[str, float] | None,
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], dict[str, int]]:
     """Build the `llm_calls` metadata list from Claude Code JSONL assistant turns.
 
     Contract: matches the frozen Context Resend Detector prereg §3 schema —
@@ -195,11 +196,22 @@ def _extract_llm_calls(
     ordered by first appearance.
 
     Grouping (§ specific to this adapter):
-      Multiple consecutive JSONL `assistant` entries can share a single
-      `message.id` — each entry carries one content block from the same API
-      call. We group consecutive same-id entries and treat them as one API
-      call (one `input_tokens` charge). Content blocks are concatenated into
-      that call's `content` list (Anthropic messages-format shape).
+      Multiple JSONL `assistant` entries can share a single `message.id` —
+      each entry carries one content block from the same API call, and
+      **every one of those lines repeats a copy of that call's single usage
+      record**. We group by `message.id` and treat the group as one API call
+      (one `input_tokens` charge). Content blocks are concatenated into that
+      call's `content` list (Anthropic messages-format shape).
+
+      Grouping is **by id, not by adjacency**: a `user` tool_result line can
+      sit between two blocks of the same call (parallel/sequential tool use),
+      and the call still happened once. Grouping on adjacency alone counted
+      such a call once per run of blocks and added the duplicated usage each
+      time — measured at 39 calls for 27 billed ones on the cited trace,
+      inflating `total_analyzed_cost` by 1.523x.
+
+      The usage copies are expected to agree; `usage_conflict_count` reports
+      how many ids disagreed rather than silently picking one.
 
     Input reconstruction:
       For each API call, `input_text` is the JSON-serialized messages list
@@ -213,19 +225,27 @@ def _extract_llm_calls(
       from the usage dict. All three are input-side; cache_read is billed
       cheaper but represents tokens actually shipped as input.
     """
-    # Pass 1: collapse consecutive same-message.id assistant entries into groups.
-    #         Interleave user entries between groups. Non-user/assistant entries
-    #         (queue-operation, attachment, file-history-snapshot, ai-title,
-    #         last-prompt, summary, ...) are skipped as they carry no
-    #         model-input content.
+    # Pass 1: collapse same-message.id assistant entries into groups, by id
+    #         rather than by adjacency (see docstring). Interleave user entries
+    #         between groups. Non-user/assistant entries (queue-operation,
+    #         attachment, file-history-snapshot, ai-title, last-prompt,
+    #         summary, ...) are skipped as they carry no model-input content.
     sequence: list[dict[str, object]] = []
-    current_asst: dict[str, object] | None = None
+    groups_by_id: dict[str, dict[str, object]] = {}
+    last_item: dict[str, object] | None = None
+    # Guards for decision (가): how often a group was reopened across an
+    # interleaved entry (= the calls the adjacency rule used to double-count),
+    # and whether the repeated usage copies disagreed.
+    api_call_merge_count = 0
+    conflict_ids: set[str] = set()
 
-    def _flush_current():
-        nonlocal current_asst
-        if current_asst is not None:
-            sequence.append(current_asst)
-            current_asst = None
+    def _usage_sig(u: dict) -> tuple:
+        return (
+            u.get("input_tokens"),
+            u.get("cache_read_input_tokens"),
+            u.get("cache_creation_input_tokens"),
+            u.get("output_tokens"),
+        )
 
     for entry in entries:
         etype = entry.get("type")
@@ -235,8 +255,8 @@ def _extract_llm_calls(
         content = msg.get("content")
 
         if etype == "user":
-            _flush_current()
-            sequence.append({"role": "user", "content": content})
+            last_item = {"role": "user", "content": content}
+            sequence.append(last_item)
             continue
 
         if etype != "assistant":
@@ -247,19 +267,31 @@ def _extract_llm_calls(
             list(content) if isinstance(content, list)
             else [{"type": "text", "text": str(content or "")}]
         )
-        if (
-            current_asst is not None
-            and current_asst.get("message_id") == mid
-            and mid is not None
-        ):
-            # Same API call, next content block — extend content list.
-            existing = current_asst["content"]
+        group = groups_by_id.get(mid) if isinstance(mid, str) and mid else None
+        if group is not None:
+            # Same API call, next content block — extend content list. The
+            # group keeps its position in `sequence`, so Pass 2 snapshots the
+            # input as it stood before the call's *first* block: that is what
+            # the API saw, and the interleaved tool_result lines were produced
+            # after the call returned.
+            if group is not last_item:
+                api_call_merge_count += 1
+            # Track the group as the item most recently written into, not just
+            # the one most recently appended: a reopened group that receives
+            # two more blocks was *one* extra call under the adjacency rule,
+            # and leaving `last_item` on the interleaved entry would count the
+            # second block as a second reopen.
+            last_item = group
+            existing = group["content"]
             assert isinstance(existing, list)
             existing.extend(block_content)
+            prev_usage = group["usage"]
+            assert isinstance(prev_usage, dict)
+            if _usage_sig(msg.get("usage") or {}) != _usage_sig(prev_usage):
+                conflict_ids.add(mid)
             continue
 
-        _flush_current()
-        current_asst = {
+        last_item = {
             "role": "assistant",
             "content": block_content,
             "message_id": mid,
@@ -267,7 +299,9 @@ def _extract_llm_calls(
             "timestamp": entry.get("timestamp") or "",
             "usage": msg.get("usage") or {},
         }
-    _flush_current()
+        sequence.append(last_item)
+        if isinstance(mid, str) and mid:
+            groups_by_id[mid] = last_item
 
     # Pass 2: for each assistant group, snapshot accumulated messages BEFORE it
     #         as the input_text, then add its own response to accumulated.
@@ -336,7 +370,10 @@ def _extract_llm_calls(
             "content": item["content"],
         })
 
-    return llm_calls
+    return llm_calls, {
+        "api_call_merge_count": api_call_merge_count,
+        "usage_conflict_count": len(conflict_ids),
+    }
 
 
 def _build_ingest_notes(
@@ -345,14 +382,23 @@ def _build_ingest_notes(
     no_tool_use_recovery: bool,
     unknown_block_types: dict[str, int],
     nontext_notes: dict[str, int],
+    llm_call_counts: dict[str, int],
 ) -> dict:
     """What the adapter dropped or rewrote on the way to the Trace.
 
     Every entry is something the numbers downstream were computed *without*
     (dropped) or *on top of* (rewritten). Empty dict when the file mapped
     cleanly, so a report can stay silent in the ordinary case.
+
+    `usage_conflict_count` rides along with `api_call_merge_count` and is
+    emitted even when it is 0: once a merge has happened, a reader needs to
+    see that the usage copies were checked and agreed, not infer it from an
+    absent key. No merge, no keys — a file with nothing to merge stays silent.
     """
     notes: dict = {}
+    if llm_call_counts.get("api_call_merge_count"):
+        notes["api_call_merge_count"] = llm_call_counts["api_call_merge_count"]
+        notes["usage_conflict_count"] = llm_call_counts.get("usage_conflict_count", 0)
     if n_orphan_use_skipped:
         notes["orphan_tool_use_skipped"] = n_orphan_use_skipped
     if no_tool_use_recovery:
@@ -567,7 +613,7 @@ def ingest_claude_code_jsonl(
     # assistant turns. This adapter previously produced tool-only spans and
     # left llm_calls empty; the extraction below is orthogonal to span
     # construction and does not modify tool spans.
-    llm_calls = _extract_llm_calls(
+    llm_calls, llm_call_counts = _extract_llm_calls(
         entries,
         input_cost_table=input_cost_table,
         output_cost_table=output_cost_table,
@@ -590,6 +636,7 @@ def ingest_claude_code_jsonl(
                 no_tool_use_recovery=no_tool_use_recovery,
                 unknown_block_types=unknown_block_types,
                 nontext_notes=nontext_notes,
+                llm_call_counts=llm_call_counts,
             ),
         },
     )
