@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from clew.cost.pricing import resolve_pricing
+from clew.cost.pricing import resolve_pricing, tier_input_cost
 from clew.model import Span, Trace
 
 if TYPE_CHECKING:
@@ -99,11 +99,13 @@ def _llm_call_input_cost(call: dict[str, Any]) -> tuple[float, bool, str | None]
         u = int(uncached or 0)
         r = int(cache_read or 0)
         w = int(cache_write or 0)
-        cost = (
-            u * pricing.base_input_per_mtok
-            + r * pricing.cache_read_per_mtok
-            + w * pricing.cache_write_5m_per_mtok
-        ) / 1_000_000.0
+        cost = tier_input_cost(
+            pricing,
+            uncached=u,
+            cache_read=r,
+            cache_write_total=w,
+            cache_write_1h=int(call.get("input_tokens_cache_write_1h") or 0),
+        )
         # Only report a substitution that changed a number. A substituted rate
         # multiplied by zero tokens invents nothing, and the field exists so a
         # consumer can decide whether to trust a dollar figure -- flagging a

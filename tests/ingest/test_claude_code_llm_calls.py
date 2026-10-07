@@ -327,3 +327,51 @@ def test_file_with_nothing_to_merge_stays_silent(tmp_path):
 
     assert "api_call_merge_count" not in notes
     assert "usage_conflict_count" not in notes
+
+
+def _with_cache_creation(ttl_1h: int, ttl_5m: int, total: int) -> list[dict[str, Any]]:
+    entries = _base_session_entries()
+    for e in entries:
+        if e.get("type") != "assistant":
+            continue
+        e["message"]["usage"] = {
+            "input_tokens": 10,
+            "cache_read_input_tokens": 100,
+            "cache_creation_input_tokens": total,
+            "cache_creation": {
+                "ephemeral_1h_input_tokens": ttl_1h,
+                "ephemeral_5m_input_tokens": ttl_5m,
+            },
+            "output_tokens": 40,
+        }
+    return entries
+
+
+def test_one_hour_writes_are_carried_separately(tmp_path):
+    p = _write_jsonl(tmp_path, _with_cache_creation(ttl_1h=800, ttl_5m=200, total=1000))
+    calls = ingest_claude_code_jsonl(p).metadata["llm_calls"]
+
+    assert calls[0]["input_tokens_cache_write"] == 1000
+    assert calls[0]["input_tokens_cache_write_1h"] == 800
+
+
+def test_a_sub_object_that_does_not_add_up_is_counted_not_guessed(tmp_path):
+    """If the parts miss the total, which part bills at 1h is undecided.
+
+    The whole write then prices at the 5-minute rate — the lower, older
+    answer — and the count reaches the report instead of rounding upward.
+    """
+    p = _write_jsonl(tmp_path, _with_cache_creation(ttl_1h=800, ttl_5m=100, total=1000))
+    trace = ingest_claude_code_jsonl(p)
+
+    assert trace.metadata["llm_calls"][0]["input_tokens_cache_write_1h"] == 0
+    assert trace.metadata["ingest_notes"]["cache_creation_ttl_mismatch_count"] == 1
+
+
+def test_no_sub_object_means_no_one_hour_share(tmp_path):
+    """Adapters that do not record the TTL keep the pre-existing behaviour."""
+    p = _write_jsonl(tmp_path, _base_session_entries())
+    trace = ingest_claude_code_jsonl(p)
+
+    assert trace.metadata["llm_calls"][0]["input_tokens_cache_write_1h"] == 0
+    assert "cache_creation_ttl_mismatch_count" not in trace.metadata["ingest_notes"]

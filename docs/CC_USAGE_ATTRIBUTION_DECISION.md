@@ -186,9 +186,9 @@ suppressing the symptom without naming the cause. **Handled separately** (§9.5)
 
 ## 6. Out of scope — what this document does **not** decide
 
-- **TTL 1h unread** (the source's
-  `usage.cache_creation.ephemeral_1h_input_tokens` is never read).
-  **Separate defect, direction is under-counting.** Re-measured 2026-10-07:
+- **TTL 1h unread** — ✅ **fixed 2026-10-08** (§10). Was: the source's
+  `usage.cache_creation.ephemeral_1h_input_tokens` is never read.
+  **Separate defect, direction was under-counting.** Re-measured 2026-10-07:
   lines carrying the `cache_creation` sub-object **72/72**, `ephemeral_1h`
   total **322,360**, `ephemeral_5m` total **0**.
   🔴 That `322,360` is the **sum over all 72 lines (duplicates included)** —
@@ -321,3 +321,68 @@ rank 1's position was correct.
   Do not write that this PR fixed it.
 - Notify web and marketing about the replaced public numbers — **`91.9%`,
   `1,720` and `$2.5248795` are retired values.**
+
+
+---
+
+## 10. TTL 1h — fixed (2026-10-08)
+
+The source carries the TTL under `usage.cache_creation`
+(`ephemeral_1h_input_tokens` / `ephemeral_5m_input_tokens`). The adapter read
+only the `cache_creation_input_tokens` total above it and priced all of it at
+the 5-minute rate, so `cache_write_1h_per_mtok` sat in the table **with no
+call site at all**. Direction was under-counting.
+
+### 10.1 What changed
+
+| | |
+|---|---|
+| `ingest/claude_code.py` | reads the sub-object; emits `input_tokens_cache_write_1h` next to the existing total |
+| `cost/pricing.py` | new `tier_input_cost(...)` — **one** formula for the four tiers |
+| `detect/context_resend.py` · `report/_model.py` | both now call it |
+
+★ The tier formula was **copied into two modules**. Adding the 1-hour rate to
+each copy would have been a third place for them to drift, so the formula
+moved into `pricing.py` and both callers were pointed at it. A test asserts
+the detector and the report price the same call identically.
+
+🔴 **Guard: `cache_creation_ttl_mismatch_count`.** When the sub-object's parts
+do not add up to the total above them, which part carries the 1-hour rate is
+undecided — so that call prices wholly at the 5-minute rate (**the lower, older
+answer**) and the count is reported. It is **not** rounded upward into the
+expensive tier. Emitted only when non-zero; this corpus measures **0**.
+The 1-hour share is also clamped to the write it is part of, so a sub-object
+larger than its total cannot invent tokens.
+
+### 10.2 Numbers (cited trace, after both fixes)
+
+| | published (retired) | after dedup only | **after dedup + TTL** |
+|---|---:|---:|---:|
+| `total_analyzed_cost` | $2.5248795 | $1.657657 | **$1.9723945** |
+| `total_llm_input_cost` | $1.9319545 | $1.281132 | **$1.5958695** |
+| resent cost | $1.6652490 | $1.031040 | **$1.2417480** |
+| resent tokens | 2,056,739 | 1,415,467 | **1,415,467** |
+| resent ratio (tokens) | 91.9% | 88.7% | **88.7%** |
+| resent / LLM input (cost) | 86.20% | 80.5% | **77.8%** |
+| `llm_calls` | 39 | 27 | **27** |
+
+- cache writes: **83,930, all of it 1-hour, 0 at 5m** — so the whole write
+  moved from $6.25/Mtok to $10.00/Mtok on `claude-opus-4-7`. Delta
+  83,930 × $3.75/Mtok = **+$0.3147**.
+- 🔴 **Token counts and the 88.7% did not move** — TTL is a rate, not a
+  quantity. Only the dollar rows change. Quoting "the numbers went up" without
+  naming which axis repeats the 2026-10-07 mistake.
+- ★ $1.9723945 matches, to seven decimals, the pre-fix estimate for
+  "one charge per API call + TTL 1h" in §2. Two independent routes to the same
+  figure.
+
+### 10.3 Still open
+
+- 🔴 **Blended distribution rate** — the resent numerator apportions by a
+  weighted average (`eff_rate`), so a resent chunk still carries cache-write
+  weight. Direction: **over**. Unfixed.
+- 🔴 **`cc_total_turns` = 72** for 27 API calls — the replication survives in
+  the amplification path. Unfixed (§5).
+- 🔴 **Not shipped.** Both fixes are on `main`; the shipping bar is a PyPI
+  re-release plus a Modal pin bump, so production still emits the retired
+  numbers.
