@@ -1,7 +1,10 @@
 # usage attribution decision — Claude Code adapter
 
 > Status: **decided as (A) (2026-10-07). Implemented and measured** → §9.
-> If a threshold appears, it splits out into a pre-registration.
+> All three defects closed: duplication §9, TTL 1h §10, blended rate §11
+> (2026-10-08). 🔴 **Closed is not shipped** — production still emits the
+> retired numbers. If a threshold appears, it splits out into a
+> pre-registration.
 > Why this document: on 2026-10-07 the published denominator was confirmed
 > **1.523x over**, and only the denominator was settled. **The numerator and
 > the ratio cannot be computed until "how one API call's usage is attributed
@@ -195,9 +198,9 @@ suppressing the symptom without naming the cause. **Handled separately** (§9.5)
   on 27 unique calls the actually-billed write is **83,930**. The two defects
   **overlap on the same field**, so fixing TTL first inflates that amount by
   the duplication again. ⇒ **(A) comes before the TTL fix.**
-- **Blended distribution rate** (resent share carries cache_write weight,
-  1.6193x the cache-read floor). **Separate defect, direction is
-  over-counting.**
+- **Blended distribution rate** — ✅ **fixed 2026-10-08** (§11). Was: the
+  resent share carried cache_write weight, 1.6193x the cache-read floor on the
+  pre-dedup figure. **Separate defect, direction was over-counting.**
 - Live-number replacement copy (web's scope) and prohibited-phrase updates
   (marketing's scope).
 
@@ -216,7 +219,7 @@ total never looked wrong. **Do not describe them as having one direction.**
    count / `(call, chunk)` flag count / tokens and dollars — on 2026-10-07
    three engine statements and one marketing statement were wrong from this
    one cause)
-4. TTL and blended rate, each as its own change
+4. ✅ TTL and blended rate, each as its own change → §10, §11
 5. Notify about the replaced public numbers (web, marketing)
 
 🔴 **This defect happened with `cost_accuracy_flag = "accurate"`** — a wrong
@@ -312,9 +315,10 @@ rank 1's position was correct.
 
 ### 9.5 What is left
 
-- **TTL 1h unread** and the **blended distribution rate** remain unfixed (§6).
-  With duplication now removed, the TTL fix has to be re-measured as well (the
-  earlier $1.9723945 estimate was computed **before** dedup).
+- **TTL 1h unread** and the **blended distribution rate** — both ✅ fixed
+  2026-10-08 (§10, §11). As written on 2026-10-07 they were open, and the TTL
+  fix did have to be re-measured after dedup (the earlier $1.9723945 estimate
+  was computed **before** dedup — it came out identical anyway, §10.2).
 - 🔴 **The amplification path was not fixed** — `cc_total_turns` is still 72
   after this change (§5). The same replication survives there under the name
   "turn count", with `prev==next` suppressing the symptom. **Separate, open.**
@@ -378,11 +382,120 @@ larger than its total cannot invent tokens.
 
 ### 10.3 Still open
 
-- 🔴 **Blended distribution rate** — the resent numerator apportions by a
-  weighted average (`eff_rate`), so a resent chunk still carries cache-write
-  weight. Direction: **over**. Unfixed.
+- **Blended distribution rate** — ✅ **fixed 2026-10-08** (§11). The resent
+  numerator walked a weighted average (`eff_rate`), so a resent chunk carried
+  cache-write weight. Direction was **over**.
 - 🔴 **`cc_total_turns` = 72** for 27 API calls — the replication survives in
   the amplification path. Unfixed (§5).
 - 🔴 **Not shipped.** Both fixes are on `main`; the shipping bar is a PyPI
   re-release plus a Modal pin bump, so production still emits the retired
   numbers.
+
+---
+
+## 11. Blended distribution rate — fixed (2026-10-08)
+
+The last of the three defects. Direction: **over-counting**. With it closed,
+no known direction is left open on the cited figures.
+
+### 11.1 What was wrong
+
+`detect/context_resend.py::_rate_and_cost_for_call` priced a call tier by
+tier and then **collapsed the result into one average rate**:
+
+```python
+eff_rate = (total_cost / total) if total > 0 else 0.0   # weighted average
+...
+resent_cost = resent_toks * eff_rate                    # every chunk, same rate
+```
+
+So the tiers were distinguished when the *call* was priced and undistinguished
+when the *chunk* was. A resent chunk is content the call already sent, which
+is the part of the prompt a cache serves — but the average carried a share of
+the cache **write**, the tier that paid for the new content. On
+`claude-opus-4-7` the write is $6.25/Mtok at 5-minute TTL and $10.00/Mtok at
+one hour, against $0.50/Mtok for a read: a 12.5x to 20x spread folded into one
+number.
+
+🔴 The denominator never had this defect — `metrics/waste_rate.py:138` calls
+`input_cost_for_call`, which uses `tier_input_cost` directly. **Numerator and
+denominator priced the same call by two different rules**, which is what the
+first amendment to `WASTE_RATE_METRIC_PREREG` §1.2 existed to stop.
+
+### 11.2 What it does now
+
+`cost/pricing.py::tier_input_ladder` returns the call's four tiers as
+`(rate, token capacity)` pairs, and `tier_input_cost` is now defined as the
+sum of that ladder — one description of the call, not two. The resend
+numerator walks the ladder **cheapest rung first**, carrying over within a
+call so two resent chunks cannot both claim the cache-read rate.
+
+**Why cheapest first.** The provider reports how many tokens were billed in
+each tier, never which chunk sat in which. Where the split is undecidable this
+repository already has a rule, from `cache_creation_ttl_mismatch_count`: price
+at the lower rate and surface a count, never round up into the dearer tier.
+The mechanically-ordered alternative — cache prefix, then the write, then the
+uncached tail, which is how a provider actually partitions a prompt — was
+measured on the cited trace and differs by **$0.00004** (the trace bills 61
+uncached tokens in total, so the overflow has nowhere to go but the write
+either way). The choice is not what moves the number; dropping the average is.
+
+🔴 **`b_all_cache_read` is still not the answer.** Pricing every resent token
+at the cache-read rate gives $0.7077335 and passes on the trace total
+(1,415,467 resent ≤ 1,512,529 cache read), but **3 of 27 calls resend more
+than their own cache read** — the ladder charges that overflow, a flat
+cache-read rate would not.
+
+### 11.3 Guard
+
+`resent_tokens_over_tier_capacity` on `ContextResendResult`, surfaced in the
+JSON report **only when non-zero** (the adapter guard's convention). It counts
+resent tokens that exceeded the sum of their call's tier capacities, which can
+only happen if an adapter breaks the ingest invariant
+`input_tokens == uncached + cache_read + cache_write`. Those tokens are priced
+at the cheapest rung and counted rather than dropped — a dropped token is a
+dollar the report never mentions. **On the cited trace: 0.**
+
+### 11.4 Numbers (cited trace, one run)
+
+| | published (retired) | dedup + TTL (`a1317c5`) | **+ ladder** |
+|---|---:|---:|---:|
+| `total_analyzed_cost` | $2.5248795 | $1.9723945 | **$1.9723945** |
+| `total_llm_input_cost` | $1.9319545 | $1.5958695 | **$1.5958695** |
+| `total_waste_cost` | $1.6652490 | $1.2417480 | **$0.9015315** |
+| `waste_ratio` | 0.659536 | 0.629561 | **0.457075** |
+| resent / LLM input (cost) | 86.20% | 77.8% | **56.4916%** |
+| resent tokens | 2,056,739 | 1,415,467 | **1,415,467** |
+| resent ratio (tokens) | 91.9% | 88.7% | **88.7%** |
+| `llm_calls` | 39 | 27 | **27** |
+
+- 🔴 **Only the waste dollar moved.** `total_analyzed_cost` and
+  `total_llm_input_cost` are unchanged — this defect was never in the
+  denominator. Tokens and the 88.7% are unchanged too: like the TTL, an
+  apportionment rate is a rate, not a quantity. Saying "the numbers came down"
+  without naming the axis repeats the 2026-10-07 mistake.
+- The three defects together: `$1.6652490 → $0.9015315`, a factor of
+  **1.847x** on the waste dollar. 🔴 Quoting a factor without naming which
+  defects are in it is how the 1.523x / 1.280x pair got misused.
+- ★ Two independent routes to $0.9015315: the detector's internal per-event
+  ladder walk, and an external recomputation from the report's
+  `resent_input_tokens` per call against the tier capacities. They agree to
+  fifteen digits.
+- **The pointing changed again.** The top offender by cost is now
+  `msg_01S2rTDtWwK9s5G15AiHu3Zf` — 32,595 resent tokens for $0.182613 — ahead
+  of calls that resend twice as many tokens, because its resent share spills
+  into the 1-hour write rung. Under one average rate, cost ordering was token
+  ordering; it is not any more.
+
+### 11.5 Out of scope
+
+- **`redundant_read.py:241`** reads the same `eff_rate` and keeps it. Its
+  tokens are **counterfactual** — what a read would have added to the next
+  call's input had it not been avoided — so there is no tier capacity on the
+  call to fill them into. Pricing a hypothetical token by tier is a separate
+  question with its own measurement, not a one-line follow-on.
+- **`cc_total_turns` = 72** for 27 API calls. The replication survives in the
+  amplification path. Unfixed (§5).
+- 🔴 **Still not shipped.** All three fixes are on `main`; the bar is a PyPI
+  re-release plus a Modal pin bump, so production still emits the retired
+  numbers and the home page still says 91.9%.
