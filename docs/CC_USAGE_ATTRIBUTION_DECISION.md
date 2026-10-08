@@ -1,9 +1,9 @@
 # usage attribution decision — Claude Code adapter
 
 > Status: **decided as (A) (2026-10-07). Implemented and measured** → §9.
-> All three defects closed: duplication §9, TTL 1h §10, blended rate §11
-> (2026-10-08). 🔴 **Closed is not shipped** — production still emits the
-> retired numbers. If a threshold appears, it splits out into a
+> All four defects closed: duplication §9, TTL 1h §10, blended rate §11,
+> `cc_total_turns` §12 (2026-10-08). The first three shipped as `0.5.13`;
+> 🔴 **§12 has not shipped.** If a threshold appears, it splits out into a
 > pre-registration.
 > Why this document: on 2026-10-07 the published denominator was confirmed
 > **1.523x over**, and only the denominator was settled. **The numerator and
@@ -185,7 +185,7 @@ it walks the **raw `entries`**. After the fix:
 ⇒ **The same replication defect sits there untouched.** `cc_total_turns`
 counts **content-block lines** under the name "turns", and `prev==next` is
 filtering out adjacent lines with equal usage (i.e. copies of one call) —
-suppressing the symptom without naming the cause. **Handled separately** (§9.5).
+suppressing the symptom without naming the cause. **Handled separately** — ✅ §12 (2026-10-08).
 
 ## 6. Out of scope — what this document does **not** decide
 
@@ -319,10 +319,10 @@ rank 1's position was correct.
   2026-10-08 (§10, §11). As written on 2026-10-07 they were open, and the TTL
   fix did have to be re-measured after dedup (the earlier $1.9723945 estimate
   was computed **before** dedup — it came out identical anyway, §10.2).
-- 🔴 **The amplification path was not fixed** — `cc_total_turns` is still 72
-  after this change (§5). The same replication survives there under the name
-  "turn count", with `prev==next` suppressing the symptom. **Separate, open.**
-  Do not write that this PR fixed it.
+- **The amplification path was not fixed by this change** — `cc_total_turns`
+  was still 72 afterwards (§5). The same replication lived on there under the
+  name "turn count", with `prev==next` suppressing the symptom.
+  Do not write that *this* PR fixed it. ✅ Closed separately on 2026-10-08 (§12).
 - Notify web and marketing about the replaced public numbers — **`91.9%`,
   `1,720` and `$2.5248795` are retired values.**
 
@@ -385,8 +385,8 @@ larger than its total cannot invent tokens.
 - **Blended distribution rate** — ✅ **fixed 2026-10-08** (§11). The resent
   numerator walked a weighted average (`eff_rate`), so a resent chunk carried
   cache-write weight. Direction was **over**.
-- 🔴 **`cc_total_turns` = 72** for 27 API calls — the replication survives in
-  the amplification path. Unfixed (§5).
+- **`cc_total_turns` = 72** for 27 API calls — ✅ **fixed 2026-10-08** (§12).
+  🔴 Not shipped.
 - 🔴 **Not shipped.** Both fixes are on `main`; the shipping bar is a PyPI
   re-release plus a Modal pin bump, so production still emits the retired
   numbers.
@@ -494,8 +494,115 @@ dollar the report never mentions. **On the cited trace: 0.**
   call's input had it not been avoided — so there is no tier capacity on the
   call to fill them into. Pricing a hypothetical token by tier is a separate
   question with its own measurement, not a one-line follow-on.
-- **`cc_total_turns` = 72** for 27 API calls. The replication survives in the
-  amplification path. Unfixed (§5).
+- **`cc_total_turns` = 72** for 27 API calls — ✅ **fixed 2026-10-08** (§12),
+  after this change. 🔴 Not shipped.
 - 🔴 **Still not shipped.** All three fixes are on `main`; the bar is a PyPI
   re-release plus a Modal pin bump, so production still emits the retired
   numbers and the home page still says 91.9%.
+
+---
+
+## 12. `cc_total_turns` — fixed (2026-10-08)
+
+The replication's last residence. §9.5 left it open; this closes it.
+
+### 12.1 What was wrong
+
+`_collect_cc_usage_metadata` walked the raw `entries` and counted every
+`assistant` **line** as a turn. One API call is written as one line per content
+block, so on the cited trace that was **72 turns for 27 calls**. Two separate
+consequences, and they do not point the same way.
+
+**(a) The turn numbers were line numbers.** `report/markdown.py:356` renders
+`turn {origin} → re-run at turn {candidate} (of {total} total)`. Users were
+told a total no API ever saw, and the two indices beside it were line indices.
+Max turn index on the cited trace: **71**, against 27 calls.
+
+**(b) `next` was the next *line's* usage.** Inside a multi-block call that line
+is the same call repeating its own usage copy, so
+`cost/amplification.py::_prev_equals_next` read it as duplicate/retry usage and
+**discarded the event entirely**. On the cited trace that filter fired on
+**21 of 45** pairs (46.7%); after the fix it fires on **0**. Every one of those
+21 was an artefact of the grouping, not a retry.
+
+🔴 **The two effects run opposite ways**, so this defect has no single
+direction — unlike the other three:
+
+| | effect of the defect |
+|---|---|
+| `turns_after` per surviving event | **inflated** — Σ 1,590 against 692 after the fix, **2.2977x** |
+| events reaching the estimator at all | **suppressed** — 21 of 45 thrown away |
+
+On the cited trace the net dollar effect is **not measurable**: it has
+`waste_span_count = 0`, so the amplification estimator has no events to price
+either way. Measured instead on a synthetic trace built for the shape (a tool
+read repeated inside a multi-block call):
+
+| | before | after |
+|---|---:|---:|
+| `cc_total_turns` | 8 (lines) | **5** (= `llm_calls`) |
+| amplification events | **0** — 1 skipped as `prev == next` | **1** |
+| `amp_tokens` | 0 | **2,112** |
+| lower / upper | $0 / $0 | **$0.001056 / $0.01056** |
+
+★ **The report was silent, not merely wrong.** Rendering that trace before and
+after, the whole amplification passage is what appears:
+
+```
+before:  - **turns**: turn 1 -> re-run at turn 2 (of 8 total)
+         (no amplification lines at all)
+
+after:   - **turns**: turn 1 -> re-run at turn 2 (of 5 total)
+         - **wasted output re-consumed across 3 subsequent turns** in total
+           (amplification tokens = 2112)
+         - **re-consumed across 3 subsequent turns**
+           (~704 tokens/turn -> 2112 amplification tokens)
+```
+
+A discarded event produces no line, so the section simply was not there — the
+project's recurring shape, where the failure is indistinguishable from a normal
+answer.
+
+🔴 So on that shape the figure goes **up**, from nothing to something. ★ This
+contradicts the prediction written before the measurement
+(`_cc_turns_replication_PREDICTIONS.md` said the amount would fall because
+`turns_after` was over). The dominant term was not the inflated multiplier —
+it was events being deleted. **Do not describe this fix as a reduction.**
+
+### 12.2 What it does now
+
+Assistant lines are grouped by `message.id` in first-appearance order, the same
+rule `_extract_llm_calls` uses (§9.1), and each group is one turn:
+
+- `cc_total_turns` = number of API calls
+- `cc_turn_index[tool_use_id]` = 1-based call number
+- `cc_usage_pair[tid]["prev"]` = that call's usage, `["next"]` = the **following
+  call's** usage
+
+An assistant line with no usable `message.id` is its own group, which is what
+`_extract_llm_calls` does with it.
+
+🔴 **Not fixed with `_prev_equals_next`**, per §5: that compares two cache
+fields where `message.id` is ground truth, and it would erase two genuinely
+distinct calls that happen to share usage.
+
+🔴 **`_prev_equals_next` is left in place.** It now fires 0 times on the cited
+trace, but removing a filter moves the aggregate again and is its own decision
+with its own measurement — `feedback_intentional_drift`. "Fires 0 here" is not
+"inert".
+
+### 12.3 Guard
+
+`cc_total_turns == len(llm_calls)` is asserted by test across three shapes
+(single call, one call split across a tool_result, two calls with the second
+split). Both numbers claim to count billed API calls from the same file; two
+descriptions that agree only by accident drift. The 5 new tests were run
+against the pre-fix code and **4 of 5 fail** — the fifth locks the no-id
+contract, where lines and calls happen to coincide.
+
+### 12.4 Still open
+
+- **Stage 4 P1.4 suppression span** — a suppressed tool call emits no span, so a
+  trace captured with the cache on reports *less* waste.
+- 🔴 **Not shipped.** This lands after `0.5.13`, so production carries the
+  line-based turn numbers until the next release.
