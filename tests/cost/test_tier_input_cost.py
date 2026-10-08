@@ -6,6 +6,8 @@ and that the two callers price a call identically.
 """
 from __future__ import annotations
 
+import pytest
+
 from clew.cost.pricing import get_pricing, tier_input_cost
 from clew.detect.context_resend import input_cost_for_call
 from clew.report._model import _llm_call_input_cost
@@ -82,3 +84,60 @@ def test_a_call_without_the_1h_field_prices_as_it_did_before():
     )
 
     assert input_cost_for_call(call) == expected
+
+
+# ── ladder (CC_USAGE_ATTRIBUTION_DECISION §11.2) ────────────────────────────
+
+@pytest.mark.parametrize("model", ["claude-opus-4-7", "claude-sonnet-4.5", "gpt-4o"])
+@pytest.mark.parametrize(
+    "uncached,cache_read,write_total,write_1h",
+    [
+        (0, 0, 0, 0),
+        (1_000, 0, 0, 0),
+        (0, 9_000, 0, 0),
+        (1_000, 9_000, 1_000, 0),
+        (1_000, 9_000, 6_000, 4_000),
+        (0, 0, 5_000, 5_000),
+        (61, 1_512_529, 83_930, 83_930),
+    ],
+)
+def test_the_ladder_sums_to_the_total_it_was_split_from(
+    model, uncached, cache_read, write_total, write_1h
+):
+    """The two functions describe one call and must not drift.
+
+    `tier_input_cost` is the figure the denominator and the report publish;
+    `tier_input_ladder` is the breakdown the resend numerator walks. If they
+    disagree, the numerator can exceed its own denominator. Exact equality,
+    not approx — the cost function is defined as this sum.
+    """
+    from clew.cost.pricing import get_pricing, tier_input_cost, tier_input_ladder
+
+    pricing = get_pricing(model)
+    kwargs = dict(
+        uncached=uncached,
+        cache_read=cache_read,
+        cache_write_total=write_total,
+        cache_write_1h=write_1h,
+    )
+    ladder = tier_input_ladder(pricing, **kwargs)
+
+    assert sum(toks for _rate, toks in ladder) == uncached + cache_read + write_total
+    assert sum(rate * toks for rate, toks in ladder) / 1_000_000.0 == tier_input_cost(
+        pricing, **kwargs
+    )
+
+
+def test_the_ladder_splits_the_write_by_ttl_and_clamps_an_impossible_1h_part():
+    """Same clamp as the cost function: a reported 1-hour part larger than the
+    write it belongs to cannot create tokens."""
+    from clew.cost.pricing import get_pricing, tier_input_ladder
+
+    pricing = get_pricing("claude-opus-4-7")
+    ladder = tier_input_ladder(
+        pricing, uncached=0, cache_read=0, cache_write_total=1_000,
+        cache_write_1h=5_000,
+    )
+    by_rate = {rate: toks for rate, toks in ladder}
+    assert by_rate[pricing.cache_write_1h_per_mtok] == 1_000
+    assert by_rate[pricing.cache_write_5m_per_mtok] == 0

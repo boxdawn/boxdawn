@@ -48,20 +48,21 @@ class ModelPricing:
         return tokens * self.output_per_mtok / _USD_PER_MTOK
 
 
-def tier_input_cost(
+def tier_input_ladder(
     pricing: ModelPricing,
     *,
     uncached: int,
     cache_read: int,
     cache_write_total: int,
     cache_write_1h: int = 0,
-) -> float:
-    """Input cost for one call, each tier at its own rate.
+) -> list[tuple[float, int]]:
+    """One call's input as `(rate $/Mtok, token capacity)` per tier.
 
-    One function because two callers price the same call
-    (`detect/context_resend.py::_rate_and_cost_for_call` and
-    `report/_model.py`), and the formula was copied into both. A third copy
-    for the 1-hour TTL would have let them drift apart.
+    Canonical order: uncached, cache_read, 5-minute write, 1-hour write.
+    `tier_input_cost` is the sum of this ladder, so a caller that needs to know
+    *which* tier a subset of the tokens sat in — resend apportionment prices
+    only the resent part — walks the same four pairs the total was built from
+    instead of a second description of them.
 
     `cache_write_total` is what the provider reported as cache creation;
     `cache_write_1h` is the part of it written with the 1-hour TTL, which
@@ -72,11 +73,43 @@ def tier_input_cost(
     """
     w1h = max(0, min(int(cache_write_1h), int(cache_write_total)))
     w5m = int(cache_write_total) - w1h
-    return (
-        uncached * pricing.base_input_per_mtok
-        + cache_read * pricing.cache_read_per_mtok
-        + w5m * pricing.cache_write_5m_per_mtok
-        + w1h * pricing.cache_write_1h_per_mtok
+    return [
+        (pricing.base_input_per_mtok, int(uncached)),
+        (pricing.cache_read_per_mtok, int(cache_read)),
+        (pricing.cache_write_5m_per_mtok, w5m),
+        (pricing.cache_write_1h_per_mtok, w1h),
+    ]
+
+
+def tier_input_cost(
+    pricing: ModelPricing,
+    *,
+    uncached: int,
+    cache_read: int,
+    cache_write_total: int,
+    cache_write_1h: int = 0,
+) -> float:
+    """Input cost for one call, each tier at its own rate.
+
+    One function because three callers price the same call
+    (`detect/context_resend.py::_rate_and_cost_for_call`, `report/_model.py`,
+    and the waste-rate denominator through the first), and the formula was
+    copied into two of them. A further copy for the 1-hour TTL would have let
+    them drift apart.
+
+    The summation order is the ladder's canonical order, left to right, which
+    is the order this function added the four terms in before the ladder
+    existed — so the figure is unchanged bit for bit.
+    """
+    return sum(
+        rate * tokens
+        for rate, tokens in tier_input_ladder(
+            pricing,
+            uncached=uncached,
+            cache_read=cache_read,
+            cache_write_total=cache_write_total,
+            cache_write_1h=cache_write_1h,
+        )
     ) / _USD_PER_MTOK
 
 

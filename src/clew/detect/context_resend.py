@@ -19,7 +19,12 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from clew.cost.pricing import ModelPricing, get_pricing, tier_input_cost
+from clew.cost.pricing import (
+    ModelPricing,
+    get_pricing,
+    tier_input_cost,
+    tier_input_ladder,
+)
 from clew.model import Trace
 
 
@@ -45,6 +50,13 @@ class ContextResendResult:
     total_llm_input_tokens: int = 0
     total_llm_input_cost: float = 0.0
     cost_accuracy_flag: CostAccuracy = "accurate"
+    # Guard (`docs/CC_USAGE_ATTRIBUTION_DECISION.md` §11.3): resent tokens that
+    # exceeded the sum
+    # of their call's tier capacities and were therefore priced at the call's
+    # cheapest rate. Zero whenever `input_tokens == uncached + cache_read +
+    # cache_write`, the invariant the ingest layer guarantees; non-zero means
+    # an adapter broke it and the figure below is a floor for those tokens.
+    resent_tokens_over_tier_capacity: int = 0
 
 
 # ── Chunk boundary (prereg §2) ───────────────────────────────────────────────
@@ -168,6 +180,83 @@ def input_cost_for_call(call: dict[str, Any]) -> float:
     return cost
 
 
+def _ladder_for_call(call: dict[str, Any]) -> list[tuple[float, int]]:
+    """One call's input as `(rate $/token, token capacity)`, cheapest first.
+
+    The same five-step resolution as `_rate_and_cost_for_call` (tier split →
+    caller rate → legacy rate → pricing.py → nothing), but it keeps the tiers
+    apart instead of averaging them. Resend apportionment walks this ladder:
+    a resent chunk is content the call sent before, so it sits in the cheap end
+    of the call's own billing, and charging it the weighted average made it
+    carry a share of the cache *write* that paid for the new content.
+
+    Cheapest first is a choice where the provider does not tell us which chunk
+    sat in which tier. It follows `cache_creation_ttl_mismatch_count`'s rule
+    (`ingest/claude_code.py`): where the split is undecidable, price at the
+    lower rate and surface a count, never round up into the dearer tier. On the
+    cited trace the mechanically-ordered alternative (cache prefix first, then
+    the write, then the tail) differs by $0.00004.
+
+    Capacity totals `input_tokens` on every branch, so the clamp that keeps
+    Σ resent ≤ `input_tokens` also keeps resent inside the ladder.
+    """
+    input_tokens_val = call.get("input_tokens")
+    input_tokens = int(input_tokens_val) if input_tokens_val is not None else 0
+
+    if has_tier_split(call):
+        model = call.get("model")
+        pricing = get_pricing(model) if model else get_pricing(None)
+        ladder = tier_input_ladder(
+            pricing,
+            uncached=int(call.get("input_tokens_uncached") or 0),
+            cache_read=int(call.get("input_tokens_cache_read") or 0),
+            cache_write_total=int(call.get("input_tokens_cache_write") or 0),
+            cache_write_1h=int(call.get("input_tokens_cache_write_1h") or 0),
+        )
+        rungs = [
+            (rate / 1_000_000.0, tokens) for rate, tokens in ladder if tokens > 0
+        ]
+    else:
+        # Flat-rate branches have one tier, so the ladder reproduces the old
+        # multiplication exactly; step (5) keeps its silent zero.
+        rate, _cost, _pricing = _rate_and_cost_for_call(call)
+        rungs = [(rate, input_tokens)]
+
+    # Ties keep canonical tier order (sorted is stable), so the walk is
+    # deterministic for providers that price two tiers the same.
+    return sorted(rungs, key=lambda rung: rung[0])
+
+
+def _price_against_ladder(
+    rungs: list[tuple[float, int]], consumed: int, tokens: int,
+) -> tuple[float, int]:
+    """Cost of `tokens` starting at offset `consumed` in `rungs`.
+
+    Returns `(cost, over_capacity_tokens)`. Tokens past the last rung are
+    priced at the cheapest rate and reported, rather than silently dropped —
+    a dropped token is a dollar the report never mentions.
+    """
+    cost = 0.0
+    skip = consumed
+    left = tokens
+    for rate, capacity in rungs:
+        if skip >= capacity:
+            skip -= capacity
+            continue
+        available = capacity - skip
+        skip = 0
+        take = min(left, available)
+        cost += take * rate
+        left -= take
+        if left <= 0:
+            return cost, 0
+    if rungs:
+        cost += left * rungs[0][0]
+    # A tier split reporting no tokens at all leaves `rungs` empty, so the
+    # whole amount lands in the count rather than costing zero unremarked.
+    return cost, left
+
+
 def _rate_and_cost_for_call(
     call: dict[str, Any],
 ) -> tuple[float, float, ModelPricing | None]:
@@ -275,7 +364,7 @@ def find_context_resend(trace: Trace, n: int = 2) -> ContextResendResult:
 
     # Pre-compute per-call chunk annotations, denominators, and effective rates.
     per_call: list[list[tuple[str, str | None, int]]] = []
-    per_call_rate: list[float] = []
+    per_call_ladder: list[list[tuple[float, int]]] = []
     occurrence_count: dict[str, int] = {}
     total_input_tokens = 0
     total_input_cost = 0.0
@@ -286,7 +375,7 @@ def find_context_resend(trace: Trace, n: int = 2) -> ContextResendResult:
         input_tokens_val = call.get("input_tokens")
         input_tokens = int(input_tokens_val) if input_tokens_val is not None else 0
 
-        eff_rate, call_cost, _ = _rate_and_cost_for_call(call)
+        _rate, call_cost, _pricing = _rate_and_cost_for_call(call)
 
         total_input_tokens += input_tokens
         total_input_cost += call_cost
@@ -298,7 +387,7 @@ def find_context_resend(trace: Trace, n: int = 2) -> ContextResendResult:
             annotated.append((chunk_text, role, _chunk_token_len(chunk_text, model)))
             occurrence_count[chash] = occurrence_count.get(chash, 0) + 1
         per_call.append(annotated)
-        per_call_rate.append(eff_rate)
+        per_call_ladder.append(_ladder_for_call(call))
 
     result.total_llm_input_tokens = total_input_tokens
     result.total_llm_input_cost = total_input_cost
@@ -317,7 +406,11 @@ def find_context_resend(trace: Trace, n: int = 2) -> ContextResendResult:
 
         input_tokens_val = call.get("input_tokens")
         input_tokens = int(input_tokens_val) if input_tokens_val is not None else 0
-        eff_rate = per_call_rate[i]
+        rungs = per_call_ladder[i]
+        # How much of this call's ladder earlier chunks of the same call
+        # already took, so two resent chunks cannot both claim the cheapest
+        # rung.
+        ladder_consumed = 0
 
         share_total = sum(t for _, _, t in annotated)
         if share_total == 0:
@@ -355,10 +448,15 @@ def find_context_resend(trace: Trace, n: int = 2) -> ContextResendResult:
             # wr_char cannot exceed 1.0. Order-deterministic (trace order).
             resent_toks = max(0, min(resent_toks, remaining_budget))
             remaining_budget -= resent_toks
-            # Tier-aware apportionment uses the effective per-token rate for
-            # this call — that rate already reflects the uncached/cache_read/
-            # cache_write split via _rate_and_cost_for_call.
-            resent_cost = resent_toks * eff_rate
+            # Tier-aware apportionment walks the call's own tier ladder
+            # cheapest-rung first (usage attribution decision §11.2) rather than
+            # multiplying by one weighted-average rate, which made every
+            # resent chunk carry a share of the cache write.
+            resent_cost, over_capacity = _price_against_ladder(
+                rungs, ladder_consumed, resent_toks,
+            )
+            ladder_consumed += resent_toks
+            result.resent_tokens_over_tier_capacity += over_capacity
 
             result.resent_events.append(ResentEvent(
                 llm_span_id=call["span_id"],

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from clew.cost.amplification import AmplificationEstimate
 from clew.detect.cascade import CascadeResult
@@ -122,7 +122,7 @@ def _context_resend_block(cr: ContextResendResult | None) -> dict | None:
     denom_cost = cr.total_llm_input_cost
     ratio_tokens = (cr.resent_input_tokens / denom_tokens) if denom_tokens > 0 else 0.0
     ratio_cost = (cr.resent_cost / denom_cost) if denom_cost > 0 else 0.0
-    return {
+    out: dict[str, Any] = {
         "resent_input_tokens": cr.resent_input_tokens,
         "resent_cost": round(cr.resent_cost, 8),
         "total_llm_input_tokens": cr.total_llm_input_tokens,
@@ -143,6 +143,13 @@ def _context_resend_block(cr: ContextResendResult | None) -> dict | None:
             for ev in cr.resent_events
         ],
     }
+    # Guard, present only when it fired (same convention as the adapter's
+    # `cache_creation_ttl_mismatch_count`): resent tokens that did not fit
+    # inside their call's tier capacities and were priced at the cheapest
+    # rate, so `resent_cost` is a floor for them.
+    if cr.resent_tokens_over_tier_capacity:
+        out["resent_tokens_over_tier_capacity"] = cr.resent_tokens_over_tier_capacity
+    return out
 
 
 def _wr_round(v: float | None, digits: int = 6) -> float | None:
