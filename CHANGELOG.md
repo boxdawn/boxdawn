@@ -2,6 +2,91 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.14 — 2026-10-11 · **"턴" 이 JSONL 줄을 세고 있었고, 그게 낭비 이벤트를 지웠다**
+
+Claude Code 어댑터는 `assistant` **줄** 하나를 턴 하나로 셌다. API 호출 하나는
+content block 마다 한 줄로 적히므로, 인용 트레이스는 **27개 API 콜에 72턴**이었다.
+`0.5.13` 의 `#247` 이 `llm_calls` 에서 같은 복제를 고쳤지만, 턴을 세는 함수는
+`llm_calls` 를 쳐다보지 않아서 결함이 그대로 남아 있었다.
+
+🔴 **결과가 둘이고 방향이 같지 않다.** 승수는 과대였고, 이벤트 수는 과소였다.
+
+| 인용 트레이스 (`claude-opus-4-7`) | 0.5.13 | **0.5.14** |
+|---|---:|---:|
+| `cc_total_turns` | 72 (줄 수) | **27** (= `llm_calls`) |
+| 최대 턴 번호 | 71 | **26** |
+| `turns_after` 합 | 1,590 | **692** (0.5.13 이 **2.2977배**) |
+| `_prev_equals_next` 발동 | 21 / 45 쌍 | **0 / 45 쌍** |
+| `llm_calls` | 27 | 27 (불변) |
+
+✅ **공개 수치는 하나도 안 움직인다.** 머지 후 인용 트레이스를 다시 돌려 확인했다 —
+`total_analyzed_cost $1.9723945` · `total_llm_input_cost $1.5958695` ·
+`total_waste_cost $0.9015315` · `waste_ratio 0.457075` ·
+재전송 토큰 `1,415,467` · 재전송 토큰 비율 `88.7%`. **여섯 값 전부 동일하다.**
+비용식은 `usage` 를 읽고 턴 수를 읽지 않는다.
+
+### 수정 — 턴 번호가 줄 번호였다 (`#252`)
+
+`report/markdown.py:358` 은 `turn N → re-run at turn M (of T total)` 를 렌더한다.
+그래서 사용자는 **어느 API 도 본 적 없는 총계**를 턴 수로 받고, 그 옆에 줄 번호를
+받았다. 이제 묶음은 `message.id` 기준 최초 등장 순서이며, `_extract_llm_calls` 가
+쓰는 규칙과 같다. 쓸 수 있는 `message.id` 가 없는 줄은 그 자체로 한 묶음이다 —
+`_extract_llm_calls` 가 그렇게 다루므로 두 값이 어긋나지 않는다.
+
+가드로 `cc_total_turns == len(llm_calls)` 를 세 가지 모양에서 assert 한다. 둘 다
+같은 파일에서 **청구되는 API 콜 수**를 말한다고 주장하므로, 우연히만 같은 두 서술은
+갈라진다. 새 테스트 5건 중 **4건이 수정 전 코드에서 실패**하고, 다섯 번째는
+줄과 콜이 일치하는 무-id 계약을 고정한다.
+
+### 수정 — 같은 콜이 자기 usage 를 반복하는 것을 "중복" 으로 읽어 이벤트를 버렸다 (`#252`)
+
+`cc_usage_pair` 의 `next` 는 **다음 줄**의 usage 였다. 여러 블록으로 된 콜 안에서
+다음 줄은 **같은 콜이 자기 usage 사본을 다시 적은 것**이다.
+`cost/amplification.py::_prev_equals_next` 는 그것을 중복/재시도 usage 로 읽고
+이벤트를 폐기했다 — 인용 트레이스에서 **45쌍 중 21쌍**, 수정 후 **0쌍**.
+
+🔴 **이 21건은 필터를 직접 호출해 잰 값이고, 그 트레이스의 리포트에서 실제로 지워진
+이벤트 수가 아니다.** 인용 트레이스는 `waste_span_count = 0` 이라 amplification 에
+**도달조차 하지 않는다**. 지워지는 것을 보려면 낭비 span 이 있는 트레이스가 필요하고,
+그건 아래 합성 트레이스다.
+
+🔴 **폐기된 이벤트는 한 줄도 안 찍는다.** 그 모양의 트레이스를 렌더하면 사라지는
+것이 숫자가 아니라 **amplification 문단 전체**다. 틀린 값이 아니라 **없는 절**이
+나갔다.
+
+🔴 **이것을 "금액이 줄었다/늘었다" 로 쓰지 말 것.** 인용 트레이스는
+`waste_span_count = 0` 이라 이 트레이스에서 **달러 효과는 측정 불가**다
+(amplification 은 `__main__.py:265` 에서 `wasteful` 로 게이트돼 있다). 모양을 맞춰
+만든 합성 트레이스에서는 금액이 **없음에서 있음으로** 간다:
+
+```
+cc_total_turns          8 (줄)        -> 5 (= llm_calls)
+amplification 이벤트    0 (1건 스킵)  -> 1
+amp_tokens              0             -> 6,336
+lower / upper           $0 / $0       -> $0.001901 ~ $0.019008
+```
+
+🔴 **수정 전 리포트에는 amplification 절이 렌더되지 않았다** — "$0" 이 찍힌 게 아니라
+그 절이 **없었다**. 수정 후에는 `turn 1 → re-run at turn 2 (of 5 total)` 과
+`re-consumed across 3 subsequent turns` 가 찍힌다. `waste_span_count` 는 양쪽 **1**
+로 같다 — 탐지가 바뀐 게 아니라 **추정 절이 살아남았다**.
+
+🔴 **수정 전에 적어둔 예상은 "금액이 줄어든다" 였고 틀렸다** — `turns_after` 가
+부풀어 있었으니 줄어들 것이라고 봤는데, 지배항은 승수가 아니라 **삭제되던
+이벤트**였다.
+
+🔴 **`_prev_equals_next` 필터는 지우지 않았다.** 이 트레이스에서 이제 0회 발동하지만,
+필터를 떼면 집계가 또 움직이고 그것은 **별개 결정**이다. 결정 근거는
+`docs/CC_USAGE_ATTRIBUTION_DECISION.md` 에 적혀 있다 — 그 필터는 캐시 필드 둘을
+비교하는데 `message.id` 가 ground truth 이고, 필터로 고치면 usage 가 같은 **서로 다른
+두 콜**을 지운다.
+
+### 불변
+
+동결 파라미터(φ · 창 크기 · 임베딩 모델)와 탐지 임계값은 바뀌지 않았다. 탐지
+**건수**도 바뀌지 않았다. 토큰 수·요율·비용 필드 전부 불변이다 — 바뀐 것은
+**턴을 몇으로 부르나**와 **amplification 이벤트가 살아남나** 둘뿐이다.
+
 ## 0.5.13 — 2026-10-08 · **공개하던 비용 숫자가 틀렸고, 세 오차가 서로를 가렸다**
 
 낭비 달러를 세는 경로에 결함이 셋 있었다. **방향이 같지 않았다** — 하나는 분모를
