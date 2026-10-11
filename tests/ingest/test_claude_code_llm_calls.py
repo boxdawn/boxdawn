@@ -375,3 +375,124 @@ def test_no_sub_object_means_no_one_hour_share(tmp_path):
 
     assert trace.metadata["llm_calls"][0]["input_tokens_cache_write_1h"] == 0
     assert "cache_creation_ttl_mismatch_count" not in trace.metadata["ingest_notes"]
+
+
+# ── turns are API calls, not JSONL lines (CC_USAGE_ATTRIBUTION_DECISION §12) ──
+
+def test_total_turns_counts_api_calls_not_assistant_lines(tmp_path):
+    """`cc_total_turns` named the line count.
+
+    The fixture is one API call written as two assistant lines around the
+    tool_result it produced. Per line it is 2; the model was called once, and
+    the report renders this number as "of N total" turns.
+    """
+    p = _write_jsonl(tmp_path, _same_id_block_after_tool_result())
+    trace = ingest_claude_code_jsonl(p)
+
+    assert trace.metadata["cc_total_turns"] == 1
+
+
+def test_total_turns_equals_the_number_of_llm_calls(tmp_path):
+    """Two descriptions of "how many API calls" that must not drift.
+
+    `_extract_llm_calls` and `_collect_cc_usage_metadata` group by the same
+    rule; if only one of them changes, this is what notices.
+    """
+    for entries in (_base_session_entries(),
+                    _same_id_block_after_tool_result(),
+                    _two_calls_second_one_split()):
+        p = _write_jsonl(tmp_path, entries)
+        trace = ingest_claude_code_jsonl(p)
+        assert trace.metadata["cc_total_turns"] == len(trace.metadata["llm_calls"])
+
+
+def _two_calls_second_one_split() -> list[dict[str, Any]]:
+    """Two API calls, the second written as two lines with its own usage copy."""
+    entries = _same_id_block_after_tool_result()          # call msg_001, 2 lines
+    for suffix, block in (("b1", {"type": "tool_use", "id": "t-9", "name": "Read",
+                                  "input": {"file_path": "/x"}}),
+                          ("b2", {"type": "text", "text": "and done"})):
+        entries.append({
+            "type": "assistant",
+            "sessionId": "sess-A",
+            "uuid": f"a-2{suffix}",
+            "timestamp": "2026-01-01T00:00:1" + suffix[-1] + ".000Z",
+            "message": {
+                "id": "msg_002",
+                "model": "claude-sonnet-4-6",
+                "role": "assistant",
+                "content": [block],
+                "usage": {
+                    "input_tokens": 700,
+                    "cache_read_input_tokens": 11,
+                    "cache_creation_input_tokens": 0,
+                    "output_tokens": 9,
+                },
+            },
+        })
+    return entries
+
+
+def test_turn_index_numbers_calls_so_the_second_call_is_turn_two(tmp_path):
+    """Four assistant lines, two API calls: the later tool_use is turn 2.
+
+    Line-based numbering made it turn 3, and `cc_total_turns` 4 — so the
+    report said "turn 3 of 4" for the second of two model turns.
+    """
+    p = _write_jsonl(tmp_path, _two_calls_second_one_split())
+    trace = ingest_claude_code_jsonl(p)
+
+    assert trace.metadata["cc_total_turns"] == 2
+    assert trace.metadata["cc_turn_index"]["t-9"] == 2
+    # The first call's tool_use keeps turn 1.
+    assert trace.metadata["cc_turn_index"]["tool_001"] == 1
+
+
+def test_next_usage_is_the_following_call_not_the_same_calls_copy(tmp_path):
+    """Why the amplification estimator was discarding real events.
+
+    `next` used to be the next assistant *line*. Inside a multi-block call
+    that line is the same call repeating its own usage, so
+    `cost/amplification.py::_prev_equals_next` read it as duplicate/retry
+    usage and dropped the event. It has to be the following API call's usage.
+    """
+    from clew.cost.amplification import _prev_equals_next
+
+    p = _write_jsonl(tmp_path, _two_calls_second_one_split())
+    trace = ingest_claude_code_jsonl(p)
+
+    pair = trace.metadata["cc_usage_pair"]["tool_001"]
+    assert pair["prev"]["input_tokens"] == 100          # its own call
+    assert pair["next"]["input_tokens"] == 700          # the *next* call
+    assert not _prev_equals_next(pair["prev"], pair["next"])
+
+    # The last call has nothing after it.
+    assert trace.metadata["cc_usage_pair"]["t-9"]["next"] is None
+
+
+def test_an_assistant_line_without_a_message_id_is_its_own_turn(tmp_path):
+    """Matches what `_extract_llm_calls` does with it, which is what keeps
+    `cc_total_turns == len(llm_calls)` true rather than true by luck."""
+    entries = _base_session_entries()
+    entries.append({
+        "type": "assistant",
+        "sessionId": "sess-A",
+        "uuid": "a-noid",
+        "timestamp": "2026-01-01T00:00:09.000Z",
+        "message": {
+            "model": "claude-sonnet-4-6",
+            "role": "assistant",
+            "content": [{"type": "text", "text": "no id on this one"}],
+            "usage": {
+                "input_tokens": 5,
+                "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 0,
+                "output_tokens": 1,
+            },
+        },
+    })
+    p = _write_jsonl(tmp_path, entries)
+    trace = ingest_claude_code_jsonl(p)
+
+    assert trace.metadata["cc_total_turns"] == 2
+    assert trace.metadata["cc_total_turns"] == len(trace.metadata["llm_calls"])

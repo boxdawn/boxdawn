@@ -122,6 +122,7 @@ def _serialize_input(input_obj: object) -> str:
     return json.dumps(input_obj, sort_keys=True, ensure_ascii=False)
 
 
+# Grouping decision (API call, not block): docs/CC_USAGE_ATTRIBUTION_DECISION.md
 def _collect_cc_usage_metadata(
     entries: list[dict],
 ) -> tuple[dict[str, int], dict[str, dict], int]:
@@ -129,54 +130,86 @@ def _collect_cc_usage_metadata(
 
     Returns (cc_turn_index, cc_usage_pair, cc_total_turns).
 
-    - cc_turn_index[span_id] = 1-based assistant turn number that issued the tool_use.
-    - cc_usage_pair[span_id] = {"prev": host_assistant_usage_dict_or_None,
-                                 "next": next_assistant_usage_dict_or_None}
-    - cc_total_turns = total assistant entries (regardless of usage presence).
+    - cc_turn_index[span_id] = 1-based API call number that issued the tool_use.
+    - cc_usage_pair[span_id] = {"prev": issuing_call_usage_or_None,
+                                 "next": following_call_usage_or_None}
+    - cc_total_turns = total API calls (one per `message.id`).
 
-    Consumer contract: cost/amplification module reads these; adapter itself
-    does not use them. Span construction unchanged.
+    Grouping, same rule as `_extract_llm_calls` (decision doc named in the
+    comment above): several JSONL `assistant` entries can share one
+    `message.id` — one content block each, every line repeating that call's
+    single usage record. The group is one turn.
+
+    This was counted per line until 2026-10-08, which did two things. The turn
+    numbers and `cc_total_turns` were block counts wearing the name "turns"
+    (72 against 27 real calls on the cited trace), so the report's
+    "turn N of M total" named a figure no API ever saw. And `next` was the
+    *following line's* usage, which for a multi-block call is the same call's
+    own copy — so `cost/amplification.py::_prev_equals_next` was discarding
+    those events as "duplicate usage", suppressing a symptom of the grouping
+    rather than filtering anything real.
+
+    An assistant entry with no usable `message.id` is its own group, which is
+    what `_extract_llm_calls` does with it, so `cc_total_turns` equals
+    `len(llm_calls)` — asserted by test, since two descriptions of "how many
+    API calls" that are only equal by accident will drift.
+
+    Consumer contract: cost/amplification and report/_enrich read these; the
+    adapter itself does not use them. Span construction unchanged.
     """
-    assistant_positions: list[int] = [
-        i for i, e in enumerate(entries) if e.get("type") == "assistant"
-    ]
-    total_turns = len(assistant_positions)
+    # One entry per API call, in first-appearance order. `messages` keeps every
+    # line of the call so its tool_use blocks are all reachable.
+    groups: list[dict] = []
+    order_by_id: dict[str, int] = {}
+
+    for entry in entries:
+        if entry.get("type") != "assistant":
+            continue
+        msg = entry.get("message")
+        if not isinstance(msg, dict):
+            continue
+        usage = msg.get("usage")
+        usage = usage if isinstance(usage, dict) else None
+        mid = msg.get("id")
+        order = order_by_id.get(mid) if isinstance(mid, str) and mid else None
+        if order is None:
+            groups.append({"usage": usage, "messages": [msg]})
+            if isinstance(mid, str) and mid:
+                order_by_id[mid] = len(groups) - 1
+            continue
+        group = groups[order]
+        group["messages"].append(msg)
+        # The copies are expected to agree; whether they did is reported by
+        # `usage_conflict_count` from `_extract_llm_calls`, which groups the
+        # same way. Here the first non-None copy stands for the call.
+        if group["usage"] is None:
+            group["usage"] = usage
+
+    total_turns = len(groups)
 
     cc_turn_index: dict[str, int] = {}
     cc_usage_pair: dict[str, dict] = {}
 
-    for order, pos in enumerate(assistant_positions):
+    for order, group in enumerate(groups):
         turn_1based = order + 1
-        entry = entries[pos]
-        msg = entry.get("message")
-        if not isinstance(msg, dict):
-            continue
-        content = msg.get("content")
-        if not isinstance(content, list):
-            continue
-
-        prev_usage = msg.get("usage")
-        next_usage: dict | None = None
-        if order + 1 < total_turns:
-            nm = entries[assistant_positions[order + 1]].get("message")
-            if isinstance(nm, dict):
-                nu = nm.get("usage")
-                if isinstance(nu, dict):
-                    next_usage = nu
-
-        for block in content:
-            if not isinstance(block, dict):
+        next_usage = groups[order + 1]["usage"] if order + 1 < total_turns else None
+        for msg in group["messages"]:
+            content = msg.get("content")
+            if not isinstance(content, list):
                 continue
-            if block.get("type") != "tool_use":
-                continue
-            tid = block.get("id")
-            if not isinstance(tid, str) or not tid:
-                continue
-            cc_turn_index[tid] = turn_1based
-            cc_usage_pair[tid] = {
-                "prev": prev_usage if isinstance(prev_usage, dict) else None,
-                "next": next_usage,
-            }
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") != "tool_use":
+                    continue
+                tid = block.get("id")
+                if not isinstance(tid, str) or not tid:
+                    continue
+                cc_turn_index[tid] = turn_1based
+                cc_usage_pair[tid] = {
+                    "prev": group["usage"],
+                    "next": next_usage,
+                }
 
     return cc_turn_index, cc_usage_pair, total_turns
 
