@@ -23,23 +23,47 @@ change, which the design puts behind its own pre-registration. So:
 - sayable after Phase 1: "this session ran N fewer tool calls"
 - NOT sayable after Phase 1: "N tokens saved", "$N saved", "N% reduction"
 
-Known gap (design P1.4 / P1.7, deliberately open)
--------------------------------------------------
-A suppressed call emits no OpenTelemetry span yet, because where to attach one
-is still open. Until that lands, a trace captured with suppression active has
-fewer read spans, so an analyzer run over it reports *less* waste — the
-report gets quieter precisely because the cache worked. `ToolCacheReport`
-exists so the avoided calls are at least countable in-process.
+Suppressed calls still leave a span (design P1.4)
+------------------------------------------------
+A suppressed call is routed back through `BaseTool.run()` instead of returning
+early, so whatever tracing the caller already runs emits a tool span for it,
+carrying the cached content as the output. That content is what the agent
+received, so the span is a true record of the call it made — and a trace
+captured with suppression active still shows the repeat that was found. The
+alternative was a trace that gets quieter the better the cache works, which
+would delete the evidence the report exists to show.
+
+The span is tagged `clew.suppressed = True` through context metadata. Nothing
+in this package reads that tag yet: `ingest/*` is outside Phase 1 scope, so a
+report over such a trace still counts the repeat as waste, which is true — the
+agent did ask twice. Telling "found and avoided" apart from "found, still
+happening" is what the tag is written for.
+
+No tracer and no provider is constructed here. That is deliberate: it is what
+lets the same code work under `capture.py`'s local provider and under a
+caller's own global one, which is the question P1.7 left open.
+
+Still open (P1.7)
+-----------------
+Two concurrent `ainvoke` calls on one key both miss and both run; Phase 1
+takes the duplicate execution over a held lock.
 """
 from __future__ import annotations
 
 import json
 from collections import OrderedDict
+from contextlib import nullcontext
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.tools import BaseTool
 from pydantic import ConfigDict
+
+try:  # part of the same `adapter` extra as langchain-core
+    from openinference.instrumentation import using_metadata
+except ImportError:  # pragma: no cover - langchain without openinference
+    using_metadata = None
 
 from clew.detect.redundant_read import (
     _SHELL_TOOLS,
@@ -52,6 +76,18 @@ from clew.detect.redundant_read import (
 # ToolCache object, so the cap is a guard against a pathological session
 # rather than a tuned figure.
 _DEFAULT_MAX_ENTRIES = 256
+
+# Marker on the suppressed call's span (design P1.4). Read by nothing in this
+# package: `ingest/*` is out of Phase 1 scope, so this is written now and
+# consumed later rather than being invented twice.
+SUPPRESSED_ATTRIBUTE = "clew.suppressed"
+
+# Carries the already-served value from `invoke` into `_run` for one call.
+# A ContextVar rather than an attribute on the tool: one `_CachedTool` instance
+# serves every call to that tool, so an attribute would let two concurrent
+# calls hand each other the wrong value.
+_SERVED: ContextVar[Any] = ContextVar("clew_tool_cache_served")
+_NOTHING_SERVED = object()
 
 
 @dataclass
@@ -196,6 +232,17 @@ class ToolCache:
         self._report.not_cacheable_count += 1
 
 
+def _served_value() -> Any:
+    """The value `invoke` set for this suppressed call, or a clear failure."""
+    value = _SERVED.get(_NOTHING_SERVED)
+    if value is _NOTHING_SERVED:
+        raise NotImplementedError(
+            "_CachedTool routes real calls through invoke/ainvoke; _run is "
+            "only the tail of a suppressed one"
+        )
+    return value
+
+
 class _CachedTool(BaseTool):
     """Delegates to the wrapped tool, consulting the cache first."""
 
@@ -214,10 +261,43 @@ class _CachedTool(BaseTool):
             cache=cache,
         )
 
-    def _run(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover
-        # BaseTool requires it; invoke/ainvoke are overridden so it is never
-        # the path taken. Raising beats silently bypassing the cache.
-        raise NotImplementedError("_CachedTool routes through invoke/ainvoke")
+    def _run(self, *args: Any, **kwargs: Any) -> Any:
+        """The already-served value, for the suppressed path only.
+
+        A cache hit is routed back through `BaseTool.run()` (see
+        `_suppressed_context`) so that whatever tracing the caller already runs
+        emits a tool span for the call the agent actually made. `run()` ends at
+        `_run`, and the value it must return is the one `_serve` handed back —
+        not a second execution of the tool.
+
+        Reached with nothing served, it raises rather than returning something:
+        that would mean `run()` was entered outside `invoke`, and answering a
+        real call from here would bypass the cache silently.
+        """
+        return _served_value()
+
+    async def _arun(self, *args: Any, **kwargs: Any) -> Any:
+        """Async twin of `_run`. Overridden so the default does not bounce
+        `_run` onto a worker thread, where the ContextVar lookup would be a
+        different context."""
+        return _served_value()
+
+    def _suppressed_context(self) -> Any:
+        """Tag the span `run()` is about to produce as a suppressed call.
+
+        The attribute cannot be set from inside `_run`: measured 2026-10-13,
+        `trace.get_current_span()` there is a `NonRecordingSpan` with an
+        invalid context, so `set_attribute` is a no-op. The instrumentation
+        builds the span from callbacks and never makes it current. Context
+        metadata is the carrier that does reach it.
+
+        No tracer and no provider is touched anywhere in this module, which is
+        what lets the same code work under `capture.py`'s local provider and
+        under a caller's own global one (design P1.7).
+        """
+        if using_metadata is None:  # pragma: no cover - no openinference
+            return nullcontext()
+        return using_metadata({SUPPRESSED_ATTRIBUTE: True})
 
     def invoke(
         self,
@@ -232,7 +312,15 @@ class _CachedTool(BaseTool):
             return self.inner.invoke(input, config, **kwargs)
         hit, value = self.cache._serve(key)
         if hit:
-            return value
+            token = _SERVED.set(value)
+            try:
+                with self._suppressed_context():
+                    return super().invoke(input, config, **kwargs)
+            finally:
+                _SERVED.reset(token)
+        # A miss delegates to the wrapped tool, which keeps its own span and
+        # its own `config`; the outer `invoke` emits nothing, so either way one
+        # call leaves one span.
         result = self.inner.invoke(input, config, **kwargs)
         self.cache._store(key, result)
         return result
@@ -252,7 +340,12 @@ class _CachedTool(BaseTool):
             return await self.inner.ainvoke(input, config, **kwargs)
         hit, value = self.cache._serve(key)
         if hit:
-            return value
+            token = _SERVED.set(value)
+            try:
+                with self._suppressed_context():
+                    return await super().ainvoke(input, config, **kwargs)
+            finally:
+                _SERVED.reset(token)
         result = await self.inner.ainvoke(input, config, **kwargs)
         self.cache._store(key, result)
         return result

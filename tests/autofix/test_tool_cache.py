@@ -187,3 +187,134 @@ def test_ainvoke_suppresses_too():
 
     assert runs["Read"] == 1
     assert cache.report().suppressed_tool_calls_count == 1
+
+
+# ── P1.4: the suppressed call still leaves a span ───────────────────────────
+#
+# The design's choice (B): a suppressed call that left no span would make the
+# trace quieter the better the cache worked, deleting the evidence the report
+# exists to show. These run the real OpenInference instrumentor against an
+# in-memory exporter, because the claim is about what a caller's tracing sees,
+# not about what this module believes it did.
+
+otel_sdk = pytest.importorskip(
+    "opentelemetry.sdk.trace", reason="span assertions need the [adapter] extra"
+)
+pytest.importorskip("openinference.instrumentation.langchain")
+
+from openinference.instrumentation.langchain import (  # noqa: E402
+    LangChainInstrumentor,
+)
+from opentelemetry.sdk.trace import TracerProvider  # noqa: E402
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor  # noqa: E402
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (  # noqa: E402
+    InMemorySpanExporter,
+)
+
+from clew.autofix.tool_cache import SUPPRESSED_ATTRIBUTE  # noqa: E402
+
+
+def _tool_spans(drive):
+    """Run `drive()` under a live instrumentor; return the TOOL spans it made."""
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    instrumentor = LangChainInstrumentor()
+    instrumentor.instrument(tracer_provider=provider, skip_dep_check=True)
+    try:
+        drive()
+        provider.force_flush()
+        spans = list(exporter.get_finished_spans())
+    finally:
+        instrumentor.uninstrument()
+    return [
+        s
+        for s in spans
+        if (s.attributes or {}).get("openinference.span.kind") == "TOOL"
+    ]
+
+
+def _suppressed_flag(span) -> bool:
+    """The tag travels as context metadata, so it arrives JSON-encoded."""
+    raw = (span.attributes or {}).get("metadata")
+    return bool(raw) and SUPPRESSED_ATTRIBUTE in raw
+
+
+def test_a_suppressed_call_still_leaves_a_span():
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (read,) = cache.wrap([_tool("Read", runs)])
+
+    spans = _tool_spans(
+        lambda: [read.invoke({"file_path": "/x/a.txt"}) for _ in range(2)]
+    )
+
+    assert runs["Read"] == 1, "the second call must not reach the tool"
+    assert cache.report().suppressed_tool_calls_count == 1
+    assert len(spans) == 2, (
+        "two calls, two tool spans: suppressing one must not make the trace "
+        "quieter than the agent's own behaviour"
+    )
+
+
+def test_exactly_the_suppressed_span_carries_the_tag():
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (read,) = cache.wrap([_tool("Read", runs)])
+
+    spans = _tool_spans(
+        lambda: [read.invoke({"file_path": "/x/a.txt"}) for _ in range(2)]
+    )
+
+    tagged = [s for s in spans if _suppressed_flag(s)]
+    assert len(tagged) == 1, "the executed call must not be tagged as suppressed"
+
+
+def test_the_suppressed_span_carries_the_content_the_agent_received():
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (read,) = cache.wrap([_tool("Read", runs)])
+    seen: list[str] = []
+
+    spans = _tool_spans(
+        lambda: seen.extend(
+            read.invoke({"file_path": "/x/a.txt"}) for _ in range(2)
+        )
+    )
+
+    (tagged,) = [s for s in spans if _suppressed_flag(s)]
+    assert seen[1] == seen[0]
+    assert seen[0] in str((tagged.attributes or {}).get("output.value")), (
+        "the span must record what the agent actually got, which is the "
+        "cached content"
+    )
+
+
+def test_a_call_the_cache_cannot_serve_leaves_one_span_not_two():
+    """The miss path delegates to the wrapped tool, so the wrapper must not
+    also emit. One call, one span, whichever branch it takes."""
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (read,) = cache.wrap([_tool("Read", runs)])
+
+    spans = _tool_spans(lambda: read.invoke({"file_path": "/x/a.txt"}))
+
+    assert runs["Read"] == 1
+    assert len(spans) == 1
+    assert not _suppressed_flag(spans[0])
+
+
+def test_the_async_suppressed_call_leaves_a_tagged_span_too():
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (read,) = cache.wrap([_tool("Read", runs)])
+
+    async def _drive():
+        await read.ainvoke({"file_path": "/x/a.txt"})
+        await read.ainvoke({"file_path": "/x/a.txt"})
+
+    spans = _tool_spans(lambda: asyncio.run(_drive()))
+
+    assert runs["Read"] == 1
+    assert len(spans) == 2
+    assert len([s for s in spans if _suppressed_flag(s)]) == 1
