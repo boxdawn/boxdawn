@@ -55,10 +55,14 @@ annotator label — **0 of 30** when the label must be `Resource Abuse`,
 **3 of 30** when any TRAIL category counts.
 
 **1.1 🔴 S2 is zero everywhere, including where S1 fired.** Seven records reached
-a candidate pair and **none** survived the cascade. The gate they failed is the
-tool branch's byte identity (`cascade.py:5-6`: tool pairs are sha256-compared
-and phi is never invoked). The repeated `page_down` calls share a tool and a
-normalised input and return **different output**.
+a candidate pair and **none** survived the cascade. All seven are `page_down`
+pairs whose **both** spans carry `output_is_absent` — TRAIL recorded no
+`output.value` on those TOOL spans, so `confirm_pair` refuses them before any
+byte comparison (`cascade.py:72`). The pairs were never compared.
+
+> **Corrected 2026-10-14 (§6).** This paragraph first said the seven failed the
+> byte-identity gate because the repeated calls "return different output". They
+> return no recorded output at all.
 
 **1.2 The clean subset produces nothing to match.** On the 10 traces holding the
 15 non-`page_down` records, `find_repeat_candidates` returns **0 pairs of any
@@ -78,9 +82,19 @@ exhaustive, so a pair with no label on it is **unverified, not wrong**. The
 sentence travels with the number wherever it is cited (§5, decision of
 2026-10-14).
 
-Note the shape of it: 52 candidates, 2 confirmed. On this corpus the cascade
-rejects 50 of 52 — the opposite of a noisy detector, and the same gate that
-produced the zero in §1.1.
+Note the shape of it: 52 candidates, 2 confirmed. The 50 rejections are not one
+gate:
+
+| branch that decided the pair | pairs |
+|---|---:|
+| tool — an output is absent (refused, never compared) | **35** |
+| tool — sha256 of the outputs differs | **14** |
+| non-tool — below phi | 1 |
+| non-tool — confirmed | 2 |
+
+> **Corrected 2026-10-14 (§6).** This paragraph first said the cascade "rejects
+> 50 of 52" with "the same gate that produced the zero in §1.1", which read as
+> 50 byte-identity rejections. Byte identity decided **14**.
 
 ## 3. Predictions scored (§7)
 
@@ -115,8 +129,10 @@ sit in traces where the detector produces no pairs at all.
   narrower: *on the 12 TRAIL records that are neither the `page_down` harness
   family nor the redundant-read sub-code, the shipped pipeline reported none* —
   with 7 of the 12 unreadable by that detector by construction.
-- Not evidence the cascade's byte-identity gate is wrong. It is evidence the gate
-  is **decisive on this corpus**: 50 of 52 candidates die there.
+- Not evidence about the cascade's byte-identity gate either way. On this pool it
+  decided **14** of 52 pairs; **35** were refused earlier because TRAIL recorded
+  no output to compare (§2). *(Corrected 2026-10-14, §6 — first printed as "50 of
+  52 candidates die there".)*
 
 ## 5. What would actually test this detector
 
@@ -127,10 +143,31 @@ Named here so the next attempt does not re-derive it:
    was spent on records our span-based detector cannot see.
 2. **The LLM half belongs to `context_resend`,** which this pool coded as D2 = 0
    — so testing it needs a different pool, not this one re-cut.
-3. **The byte-identity gate is the thing to study next.** 50 of 52 candidates die
-   at it on TRAIL, and 0 of 13 recovered pairs were byte-equal earlier this week.
-   Whether that gate is right is a question with a measurable answer, and no pool
-   has been assembled for it.
+3. **The byte-identity gate is still worth studying, but TRAIL is a thin pool
+   for it.** Across the whole gaia split, its 86 tool pairs are **60** with an
+   absent output, **26** with differing bytes and **0** byte-equal; swe_bench has
+   none. Whether that gate is right is a question with a measurable answer, and
+   no pool has been assembled for it. *(Corrected 2026-10-14, §6.)*
+
+## 6. Correction — 2026-10-14, same day as publication
+
+§1.1, §2, §4 and §5.3 attributed the cascade's rejections to its byte-identity
+gate. A per-branch recount of the same 52 pairs, same revision, same shipped
+code, shows the tool branch's **absence guard** decided most of them: 35 tool
+pairs carry `output_is_absent` on at least one side and are refused before any
+comparison; byte identity decided 14. All seven labelled records that reached a
+pair (S1) are in the absent group.
+
+**How it happened.** An earlier probe (`_cross_agent_gaia_pair_outputs`) counted
+"byte-equal" with a raw sha256 that did not consult `output_is_absent`. Two
+absent spans carry the same non-empty placeholder
+(`otel_json.py:157`), so they hash equal — its "60 of 73 byte-equal" was 60
+absent pairs. This document leaned on that figure instead of re-counting.
+
+**What does not change.** Every number in §0, §1's funnel table, §3 and the
+headline 0 of 12 stands; they were computed by the shipped `confirm_pair`, which
+reads the guard correctly. Only the sentences naming *which* gate rejected the
+pairs were wrong.
 
 Diagnostics (uncommitted, raw counts only): `_trail_repeat_pool`,
 `_trail_repeat_recall`, `_trail_recall_s0_cause` and their `.RESULTS.json`.
