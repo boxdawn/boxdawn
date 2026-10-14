@@ -2,6 +2,89 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.15 — 2026-10-14 · **에이전트 경계를 넘은 중복을 지우지 않고 이름을 붙인다**
+
+제품 설명은 "**에이전트들 사이의** 낭비"를 말하는데, 결정론 탐지기 둘은 정확히 그
+경우를 **후보에서 삭제**했다(`structural.py` SPEC §16 게이트 · `redundant_read.py`
+가 같은 게이트 재사용). 삭제 기준이 공정하지도 않았다 — 게이트는 AGENT span 을
+보는데, 그 span 이 있는 계측(smolagents)에서는 **버려지고** 없는 계측(LangGraph
+표준 OpenInference)에서는 **평범한 `repeat` 으로 보고됐다**. 같은 사건, 반대 결과,
+판정은 계측의 우연이 했다.
+
+이제 버리지 않고 **분류한다**. 소속은 에이전트의 **종류**로 정한다(§1.3):
+가장 가까운 AGENT 조상의 `agent_or_node_id` → 없으면 가장 가까운 CHAIN 조상의 것
+→ 없으면 `None`. 양쪽이 있고 다를 때만 cross-agent 다.
+
+✅ **공개 수치는 하나도 안 움직인다.** 주장이 아니라 측정이다.
+
+인용 트레이스(`agent-race/claude-code.jsonl` · `7f309fce…`)를 **0.5.15 에서 다시
+돌렸다**: `total_analyzed_cost $1.9723945` · `total_llm_input_cost $1.5958695` ·
+`total_waste_cost $0.9015315` · `waste_ratio 0.457075` ·
+재전송 `1,415,467 / 1,596,520 = 0.8866`(**88.7%**) · `llm_calls` 27 ·
+`cc_total_turns` 27. **여덟 값 전부 0.5.14 와 동일하다.**
+
+trace-commons **CC 28 세션 전수**도 변경 전 체크아웃과 같은 스크립트로 대조했다:
+`repeat` 쌍 · 낭비 바이트 · `wr_char` · `wr_cost` · per-detector · `redundant_read`
+전 필드 동일. 🔴 단 하나 `union_waste_cost` 가 28건 중 5건에서 **≤6.9e-18** 달랐는데,
+**변경 전 코드를 두 번 돌려도 같은 크기로 달라진다**(아래 한계 절).
+
+🔴 **그리고 이 라벨은 우리가 가진 어떤 기록에도 안 걸린다.** Claude Code 120건·28건,
+TRAIL gaia 117건, TRAIL swe_bench 30건 — **전부 0건**. 양성 사례는 우리가 직접 만든
+LangGraph 그래프 하나뿐이다. 유병률·금액·정밀도 주장은 이 릴리스에서 **아무것도
+따라 나오지 않는다**. 바뀐 것은 **귀속**이다.
+
+### 수정 — tool 쌍은 더 이상 버려지지 않는다 (`#259`)
+
+| 코퍼스 | `repeat` tool 쌍 0.5.14 | **0.5.15** | `cross_agent_repeat` |
+|---|---:|---:|---:|
+| Claude Code 120 (`mimo-cc-1k` seed 42) | 12 | **12** | **0** |
+| TRAIL gaia (117) | 73 | **86** | **0** |
+| TRAIL swe_bench (30) | 0 | 0 | 0 |
+| $0 LangGraph 합성 | 1 | 0 | **1**(`worker_a`→`worker_b`) |
+
+🔴 **gaia 의 +13 은 후보고 findings 가 아니다.** 13쌍 중 출력 바이트 동일은 **0건**
+(기존 73쌍은 60건)이라 cascade 의 tool 경로를 넘지 못한다. "13건 회수"로 읽으면 틀린다.
+
+범위는 **tool 쌍 한정**이다. non-tool 그룹은 입력 일치 게이트가 없어서 같은 이름의
+단계가 서로 다른 에이전트 밑에서 어휘만으로 서로를 만난다 — 게이트를 전 종류에서
+떼면 gaia 에서 그런 `chain`/`chain` 쌍이 **86건**(39트레이스) 새로 붙는데, 그건 이
+게이트가 만들어진 이유인 오탐 모양 그대로다. 그 쌍들은 **그대로 버린다**.
+
+### 수정 — 파일 읽기 중복도 같은 규칙을 쓴다 (`#260`)
+
+`find_redundant_reads` 도 소속이 다른 읽기 쌍을 버리지 않는다. 이벤트가
+`cross_agent` 와 두 소속을 싣고, 리포트가 두 이름을 적는다. 🔴 **귀속만 바뀐다** —
+interval 게이트(사이에 같은 대상 쓰기 없음 · Bash/PowerShell 없음), `confirmed`
+sha256 플래그, 대상 추출, 비용식 전부 불변이고, 같은 두 읽기가 경계를 넘든 안 넘든
+**같은 금액**임을 테스트가 고정한다.
+
+실측: 게이트를 열어서 새로 살아난 이벤트는 **0건**이다. Claude Code 120 은
+**8건 / 269 토큰 / $0.000807** 로 변경 전과 바이트 동일, TRAIL 양쪽은 0건.
+JSON 은 두 소속 키를 **cross-agent 이벤트에만** 싣는다 — 모르는 소비자는 새 키를
+보지 않는다.
+
+### 추가 — 억제된 호출이 span 을 남긴다 (`#255`)
+
+`clew.autofix` 의 캐시가 적중하면 호출이 **아무 span 도 남기지 않고** 조기 반환했다.
+실측: 같은 읽기 2회 호출 → 실행 1회, **span 1개**. 억제가 켜진 채 잡은 트레이스는
+에이전트의 실제 행동보다 **조용했고**, 캐시가 잘 일할수록 리포트가 낭비를 **덜**
+보여줬다 — 리포트가 존재하는 이유인 증거를 지운 것이다.
+
+적중을 `BaseTool.run()` 으로 되돌려 보내 호출자가 이미 돌리는 계측이 span 을 찍게
+했다(2회 호출 → 실행 1회, **span 2개**). `ToolCacheReport` 의 카운터는 양쪽이
+동일하다 — span 을 더하는 변경이고, 세는 값을 바꾸지 않는다. 🔴 `clew.suppressed`
+마커를 **읽는 쪽은 아직 없다** — `ingest/*` 는 Phase 1 범위 밖이라, 그런 트레이스
+위의 리포트는 여전히 그 반복을 낭비로 센다(에이전트가 두 번 물은 건 사실이다).
+
+### 알려진 한계 (이 릴리스가 닫지 않은 것)
+
+- 🔴 **`union_waste_cost` 는 실행마다 마지막 비트가 다르다.** `waste_rate.py` 가
+  frozenset 순회 순서로 합산한다 — 같은 코드 두 실행에서 28세션 중 5건이
+  최대 **6.9e-18** 차이가 났다. 공개하는 소수 7자리에는 영향이 없지만, 회귀 판정에
+  "바이트 동일" 을 쓰면 안 된다. 미수정.
+- 🔴 **에이전트 간 중복의 유병률을 우리는 모른다.** 실제 다중 에이전트 트레이스를
+  구해 재는 것이 다음 일이고, 이 릴리스는 그 질문을 **물을 수 있게** 만든 것까지다.
+
 ## 0.5.14 — 2026-10-11 · **"턴" 이 JSONL 줄을 세고 있었고, 그게 낭비 이벤트를 지웠다**
 
 Claude Code 어댑터는 `assistant` **줄** 하나를 턴 하나로 셌다. API 호출 하나는
