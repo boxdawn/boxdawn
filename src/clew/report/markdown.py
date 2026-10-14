@@ -376,6 +376,14 @@ def _render_pair(idx: int, ed: EnrichedDetail, ev: AmplificationEvent | None) ->
 
     lines.append(f"### {idx}. [{ed.category}] {label}: {tool} on {target}")
     lines.append("")
+    # CROSS_AGENT_ATTRIBUTION_PREREG §2.3/P3 — the label names the two agents.
+    # Only this label can reach here with two differing identities, so the
+    # line never appears on a trace with fewer than two of them (P7).
+    if ed.pattern_label == "cross_agent_repeat":
+        lines.append(
+            f"- **agents**: `{ed.origin_identity}` ran it first, "
+            f"`{ed.candidate_identity}` ran it again"
+        )
     lines.append(f"- **turns**: {turn_phrase}")
     lines.append(f"- **cosine**: {ed.detail.cosine:.4f}")
     lines.append(f"- **state**: {modif_line}")

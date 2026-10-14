@@ -201,3 +201,143 @@ non-zero CC count as a **failure of the identity rule**, stop, and redesign.
 
 **No judge call. No API spend.** Every measurement behind this document was made
 with local corpora and a fake chat model.
+
+## 8. Scope amendment, before any code (2026-10-14)
+
+§1.3 and §1.4 were measured on **tool** pairs — the dry-run behind them
+(`_cross_agent_partition_dryrun.py`) skips every span whose `span_kind` is not
+`"tool"`. §2.4's wording ("No pair is discarded for having different AGENT
+ancestors") reads wider than that: it covers the groups keyed by
+`agent_or_node_id` alone, where no input gate applies. The two were written as
+if they said the same thing. They do not, and the difference was measured
+before the implementation existed:
+
+| corpus | non-tool pairs today | non-tool `repeat` if the gate goes | non-tool `cross_agent_repeat` | traces |
+|---|---:|---:|---:|---:|
+| Claude Code, 120 of `mimo-cc-1k`, seed 42 | 0 | 0 | **0** | 0 |
+| TRAIL gaia (117) | 10 | 56 | **86** | **39** |
+| TRAIL swe_bench (30) | 0 | 0 | 0 | 0 |
+
+🔴 All 86 are `chain`/`chain` pairs — the E3 shape the gate was added for
+(`Step 1` under `CodeAgent.run` against `Step 1` under `ToolCallingAgent.run`,
+same topical vocabulary, legitimately different roles). Under the wide reading
+**§1.4 is false and P2 is rejected**: the label would fire 86 times on a corpus
+the pre-registration says it fires 0 times on. Two shipped tests
+(`test_repeat_different_agent_parent_blocked`, `test_repeat_mixed_depth_blocked`)
+assert that drop, so the wide reading also trips §5's last KILL condition —
+an existing test would have to be edited.
+
+**8.1 Frozen: the partition is scoped to tool pairs.** A pair is eligible for
+`cross_agent_repeat` only when both spans have `span_kind == "tool"` — the pairs
+that carry the `(tool name, normalised input)` gate, and the only pairs §1.3
+measured. For every other kind the SPEC §16 gate stays exactly as shipped: a
+pair whose nearest AGENT ancestors differ is still dropped. This narrows §2.4;
+it changes no number in §1 and no prediction in §4.
+
+**8.2 `redundant_read`'s half of §2.4 is behaviour-identical here.** Measured
+the same way — the shipped detector against the detector with the gate
+neutralised:
+
+| corpus | events shipped | events with the gate off | added | waste tokens (both) |
+|---|---:|---:|---:|---:|
+| Claude Code, 120 of `mimo-cc-1k`, seed 42 | 8 | 8 | **0** | 269 |
+| TRAIL gaia (117) | 0 | 0 | 0 | 0 |
+| TRAIL swe_bench (30) | 0 | 0 | 0 | 0 |
+
+The gate drops **nothing** there on any corpus we hold, so P6 holds by
+measurement rather than by argument.
+
+🔴 **Correction, after running the suite:** this section first said the gate
+would be removed there. It is not, and the reason is §5's own last condition —
+`tests/detect/test_redundant_read.py::test_different_agent_parents_excluded`
+asserts `events == []` for two reads under different AGENT ancestors, so
+removing the gate requires editing a shipped assertion. The gate therefore
+**stays in `redundant_read`**, and §2.4's second half is deferred. What that
+costs is measured above: **0 events on all three corpora**. No label is added to
+`RedundantReadEvent` either — there is no positive case to label, and its JSON
+event schema is pinned by an exact key-set assertion in another shipped test
+(`tests/report/test_redundant_read_report_integration.py`).
+
+🔴 **Known limit, stated plainly:** `redundant_read` still drops a cross-agent
+pair, which is the behaviour §0 objects to. Reopening it needs a decision to
+waive §5 for those two tests — a decision, not an implementation detail.
+
+**8.3 What this amendment does not settle.** Whether the 86 `chain`/`chain`
+pairs are waste, false positives, or genuine cross-agent duplication is
+unexamined. They are excluded here because the gate's original justification
+(E3) is about exactly that shape and because no measurement in §1 covers them —
+not because they were judged. Deciding them needs the chain spans read one by
+one, and that is a separate document.
+
+Decision owner: 세원님, 2026-10-14. Measurements:
+`_cross_agent_nontool_scope.py`, `_cross_agent_redundant_read_scope.py`
+(diagnostics, uncommitted; raw counts reproduced above).
+
+## 9. Results — predictions scored (2026-10-14)
+
+Implementation: `635b4d9`. Every count below was produced by one script run
+against two checkouts — this branch and `origin/main` at `a0ec403` (the
+pre-change code) — on identical data, so "before" is a measurement and not a
+recollection.
+
+| # | Prediction | Measured | Verdict |
+|---|---|---|---|
+| **P1** | CC 120, seed 42: `repeat` tool pairs **12**, `cross_agent_repeat` **0** | 12 and 0 (pre-change: 12) | ✅ |
+| **P2** | TRAIL gaia: `repeat` **86**, `cross_agent_repeat` **0** | 86 and 0 (pre-change: 73) | ✅ |
+| **P3** | The $0 synthetic: `repeat` **0**, `cross_agent_repeat` **1**, naming `worker_a` and `worker_b` | 0 and 1; the label carries `worker_a` → `worker_b` (pre-change: the pair was labelled `requery`) | ✅ |
+| **P4** | trace-commons, all 28 CC sessions: `cross_agent_repeat` **0** and every `repeat`/waste figure **byte-identical** | `cross_agent_repeat` **0**. Every figure equal except `union_waste_cost` on 4 of 28, in the 17th decimal — see below | ✅ on the figures, **not evaluable** as written |
+| **P5** | Full local suite green, no existing test edited | **1108 passed, 1 xfailed, 0 failed**, no existing assertion changed — but only after the first run failed one; see below | ✅ (second run) |
+| **P6** | `redundant_read` on CC 120: finding count unchanged | 8 events / 269 waste tokens / $0.000807, identical to pre-change — and now unchanged by construction (§8.2) | ✅ |
+| **P7** | No `cross_agent_repeat` rendered on a trace with fewer than two identities | 0 such traces on all four corpora; plus a report test | ✅ |
+
+### 9.1 🔴 P4 is not evaluable as written, and that is a fact about our code
+
+Running the **pre-change checkout twice** gives two different results: 5 of the
+28 sessions' `union_waste_cost` differ between those two runs, by up to
+**3.5e-18**. Pre-change against post-change differs on 4 sessions by up to
+**6.9e-18** — the same magnitude, on the same field, and the only field that
+moves at all. Every other figure (`tool_pairs`, `total_input_bytes`,
+`total_input_cost`, `union_waste_bytes`, `union_wr_char`, `union_wr_cost`,
+per-detector bytes/costs, `redundant_read`) is identical across all three runs.
+
+The cause is in shipped code, not in this change: `waste_rate.py:166-183` builds
+`waste_cost_by_span` by iterating a **frozenset**, and `waste_rate.py:375`
+iterates `flagged_span_ids` the same way, so the summation order follows string
+hashes — which Python randomises per process. 🔴 **`union_waste_cost` is
+therefore reproducible only to ~1e-16 relative, across processes, and always
+was.** No published figure is affected: the drift is 10 orders of magnitude
+below the 7 decimals we publish. It is recorded here, not fixed here.
+
+So P4's `cross_agent_repeat = 0` half holds outright, and its byte-identity half
+is replaced by what is actually measurable: **no figure moves by more than the
+noise the unchanged code already produces.**
+
+### 9.2 🔴 P5 failed on the first run
+
+The first full-suite run was **1 failed, 1108 passed**:
+`tests/detect/test_redundant_read.py::test_different_agent_parents_excluded`
+asserts `events == []` for two reads under different AGENT ancestors. That is
+§5's last KILL condition, so the `redundant_read` gate removal was reverted
+rather than the test edited — the correction is §8.2, written before the code
+commit. The second run is green with no existing test touched. Recorded because
+"green suite" without this paragraph would be a true sentence standing on a
+reverted change.
+
+### 9.3 🔴 The +13 on TRAIL are candidates, not findings
+
+Measured on the same pairs: of the **13** pairs the gate used to drop, **0** have
+byte-equal output (and none has an absent output side), against **60 of 73** for
+the pairs it kept. The cascade's tool path pairs on sha256 output equality, so
+those 13 do not become findings — TRAIL's finding count does not move. §1.3's
+"+13" is an increase in **candidates**. 🔴 Citing it as 13 recovered findings
+would be wrong.
+
+### 9.4 What these results still do not license
+
+§1.4 stands, now with the implementation behind it: `cross_agent_repeat` is
+**0 on Claude Code (120 and 28), 0 on TRAIL gaia, 0 on TRAIL swe_bench**. The
+only positive case in existence is the LangGraph graph we wrote. No prevalence
+claim, no dollar claim, no precision claim follows from shipping this label, and
+the homepage sentence is not made true by it. What shipped is the attribution:
+a duplicate is no longer deleted for crossing an agent boundary, and when it
+does cross one, the report says which two agents.
