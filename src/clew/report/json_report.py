@@ -78,6 +78,25 @@ def _llm_judge_block(rr: LLMJudgeResult | None) -> dict | None:
     }
 
 
+def _redundant_read_event(e) -> dict:
+    """One event. The two identity keys appear only on a cross-agent event
+    (CROSS_AGENT_ATTRIBUTION_PREREG §10.3), so a consumer — and the shipped
+    key-set assertion — sees no new keys on an ordinary one."""
+    out = {
+        "read_span_id": e.read_span_id,
+        "origin_read_span_id": e.origin_read_span_id,
+        "tool_name": e.tool_name,
+        "target": e.target,
+        "waste_tokens": e.waste_tokens,
+        "waste_cost": round(e.waste_cost, 8),
+        "confirmed": e.confirmed,
+    }
+    if e.cross_agent:
+        out["origin_identity"] = e.origin_identity
+        out["candidate_identity"] = e.candidate_identity
+    return out
+
+
 def _redundant_read_block(rr: RedundantReadResult | None) -> dict | None:
     """Redundant Read Detector JSON block (prereg §6).
 
@@ -91,18 +110,7 @@ def _redundant_read_block(rr: RedundantReadResult | None) -> dict | None:
         "total_waste_tokens": rr.total_waste_tokens,
         "total_waste_cost": round(rr.total_waste_cost, 8),
         "cost_accuracy_flag": rr.cost_accuracy_flag,
-        "events": [
-            {
-                "read_span_id": e.read_span_id,
-                "origin_read_span_id": e.origin_read_span_id,
-                "tool_name": e.tool_name,
-                "target": e.target,
-                "waste_tokens": e.waste_tokens,
-                "waste_cost": round(e.waste_cost, 8),
-                "confirmed": e.confirmed,
-            }
-            for e in rr.events
-        ],
+        "events": [_redundant_read_event(e) for e in rr.events],
     }
 
 

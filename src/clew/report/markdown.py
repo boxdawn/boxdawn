@@ -541,9 +541,15 @@ def _render_redundant_read_section(
         lines.append("")
         for e in top:
             confirmed_marker = "✓" if e.confirmed else "?"
+            # CROSS_AGENT_ATTRIBUTION_PREREG §10.1 — name the two agents when
+            # the read crossed a boundary; silent on an ordinary event.
+            across = (
+                f" — `{e.origin_identity}` then `{e.candidate_identity}`"
+                if e.cross_agent else ""
+            )
             lines.append(
                 f"- {confirmed_marker} `{e.tool_name}` on `{e.target[:80]}`: "
-                f"{e.waste_tokens} tokens, ${e.waste_cost:.6f}"
+                f"{e.waste_tokens} tokens, ${e.waste_cost:.6f}{across}"
             )
         lines.append("")
     return lines

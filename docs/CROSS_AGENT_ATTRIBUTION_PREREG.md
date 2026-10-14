@@ -341,3 +341,86 @@ claim, no dollar claim, no precision claim follows from shipping this label, and
 the homepage sentence is not made true by it. What shipped is the attribution:
 a duplicate is no longer deleted for crossing an agent boundary, and when it
 does cross one, the report says which two agents.
+
+## 10. Amendment — `redundant_read`'s gate is opened (2026-10-14)
+
+§8.2 deferred this and named what reopening it would take: *"a decision to waive
+§5 for those two tests."* 세원님 took that decision on 2026-10-14. This section
+is written before the code, and its predictions below are the test of it.
+
+**10.1 What changes.** `find_redundant_reads` stops dropping a read pair whose
+two reads resolve to different identities, and labels it instead. Identity is
+the same `identity_of` rule as §1.3 — no second definition. `RedundantReadEvent`
+gains three fields with defaults (`cross_agent: bool = False`,
+`origin_identity`, `candidate_identity`), and the JSON block emits the two names
+**only when `cross_agent` is true**.
+
+**10.2 What stays.** Every other gate in the detector: the interval check (no
+intervening write to the target, no Bash/PowerShell in between), the sha256
+`confirmed` flag, the target extraction, and the cost model. A cross-agent
+redundant read is costed exactly like any other — this amendment changes
+attribution, not dollars.
+
+**10.3 The drift is exactly one assertion, and it is named.**
+`tests/detect/test_redundant_read.py::test_different_agent_parents_excluded`
+asserts `events == []` for two reads under different AGENT ancestors. That
+assertion is the gate, so it is rewritten to assert the new behaviour — one
+event, labelled, naming both agents. 🔴 **No other existing assertion may
+change.** In particular the exact key-set assertion in
+`tests/report/test_redundant_read_report_integration.py` must pass **unedited**:
+its fixture events are not cross-agent, so the two conditional keys never
+appear on them. If that test needs touching, the conditional emission is wrong.
+
+**10.4 Predictions, written before the implementation exists**
+
+| # | Prediction | What rejects it |
+|---|---|---|
+| **Q1** | CC 120 of `mimo-cc-1k`, seed 42: **8** events, **269** waste tokens, **$0.000807**, cross-agent **0** | any other number |
+| **Q2** | TRAIL gaia and swe_bench: **0** events, as today | any event appearing |
+| **Q3** | trace-commons 28 CC sessions: every `redundant_read` figure unchanged, cross-agent **0** | any movement |
+| **Q4** | Exactly **one** existing assertion changes — the one named in §10.3 — and the suite is otherwise green | a second existing test needing an edit |
+| **Q5** | A synthetic pair of reads under two agents yields **1** event with `cross_agent` true, naming both | the label missing or naming something else |
+
+🔴 **The named trap, unchanged from §4:** `cross_agent` > 0 on Claude Code means
+the identity rule is reading session scaffolding as an agent. Stop and redesign
+rather than report the count.
+
+**10.5 What this does not change.** Nothing public. §1.4 still holds — the label
+fires on nothing we hold, and this amendment widens *where* it can fire by a
+detector whose gate was measured as dropping **0 events** on every corpus we
+have. No prevalence, dollar, or precision claim follows.
+
+### 10.6 Results — §10's predictions scored (2026-10-14)
+
+Implementation: the commit this section follows. Baseline is the merged state
+(`#259`), measured with the same script on the same data.
+
+| # | Prediction | Measured | Verdict |
+|---|---|---|---|
+| **Q1** | CC 120: 8 events, 269 tokens, $0.000807, cross-agent 0 | 8 / 269 / $0.000807 / **0** — byte-equal to baseline | ✅ |
+| **Q2** | TRAIL gaia and swe_bench: 0 events | 0 and 0 | ✅ |
+| **Q3** | trace-commons 28: `redundant_read` unchanged, cross-agent 0 | every `redundant_read` figure identical on all 28; cross-agent **0** | ✅ |
+| **Q4** | Exactly one existing assertion changes; suite otherwise green | **1112 passed, 1 xfailed, 0 failed**; the key-set assertion in `test_redundant_read_report_integration.py` passed **unedited** | ✅ |
+| **Q5** | A synthetic two-agent read pair is labelled, naming both | 1 event, `cross_agent` true, `agent_a` → `agent_b` | ✅ |
+
+The `repeat` side did not move either: the structural block is identical to the
+baseline on all four corpora, including the synthetic's single
+`cross_agent_repeat`.
+
+🔴 `union_waste_cost` differs on 5 of the 28 sessions by up to **6.9e-18** —
+the same field, the same magnitude, and the same cause as §9.1, which is
+frozenset iteration order in `waste_rate.py`, not this change. Every other
+figure is bit-identical.
+
+🔴 **§1.4 still holds, and that is the whole point of writing it down.** With
+both detectors now classifying instead of dropping, `cross_agent_repeat` and
+cross-agent redundant reads are **0 on Claude Code (120 and 28), 0 on TRAIL
+gaia, 0 on TRAIL swe_bench**. Opening the gate recovered **0 events** — exactly
+what §8.2 measured before the waiver was taken. The only positive case in
+existence is still the graph we wrote. No prevalence, dollar, or precision claim
+follows from either detector, and the homepage sentence is still not true.
+
+What did change: neither detector now deletes a duplicate for crossing an agent
+boundary, and in the case that it does cross one, both reports say which two
+agents. The product can be pointed at a real multi-agent trace and asked the
+question. It has not been.
