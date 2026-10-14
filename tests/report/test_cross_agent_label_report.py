@@ -14,6 +14,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from clew.detect.cascade import CascadeResult
+from clew.detect.redundant_read import RedundantReadEvent, RedundantReadResult
 from clew.model import Span, Trace
 from clew.report._model import WasteDetail
 from clew.report.json_report import render_json
@@ -92,3 +93,50 @@ def test_single_identity_trace_renders_nothing_cross_agent():
     assert entry["pattern_label"] == "requery"
     assert "origin_identity" not in entry
     assert "candidate_identity" not in entry
+
+
+# ── §10: the same two names on a redundant read ────────────────────────────
+
+def _rr(cross: bool) -> RedundantReadResult:
+    return RedundantReadResult(
+        trace_id="T",
+        events=[RedundantReadEvent(
+            read_span_id="b",
+            origin_read_span_id="a",
+            tool_name="Read",
+            target="/repo/notes.md",
+            waste_tokens=300,
+            waste_cost=0.0009,
+            confirmed=True,
+            cross_agent=cross,
+            origin_identity="worker_a",
+            candidate_identity="worker_b" if cross else "worker_a",
+        )],
+        total_waste_tokens=300,
+        total_waste_cost=0.0009,
+    )
+
+
+def test_cross_agent_redundant_read_names_both_agents():
+    trace, _t1, _t2 = _one_owner_trace()
+    md = render_markdown(trace, _cascade(), [], redundant_read=_rr(True))
+    assert "`worker_a` then `worker_b`" in md
+
+    js = json.loads(render_json(trace, _cascade(), details=[], redundant_read=_rr(True)))
+    (ev,) = js["redundant_read"]["events"]
+    assert ev["origin_identity"] == "worker_a"
+    assert ev["candidate_identity"] == "worker_b"
+
+
+def test_ordinary_redundant_read_gains_no_keys():
+    """§10.3: the shipped key-set assertion must keep passing unedited."""
+    trace, _t1, _t2 = _one_owner_trace()
+    js = json.loads(render_json(trace, _cascade(), details=[], redundant_read=_rr(False)))
+    (ev,) = js["redundant_read"]["events"]
+    assert set(ev.keys()) == {
+        "read_span_id", "origin_read_span_id", "tool_name",
+        "target", "waste_tokens", "waste_cost", "confirmed",
+    }
+
+    md = render_markdown(trace, _cascade(), [], redundant_read=_rr(False))
+    assert "then" not in md.split("Top offenders")[1]

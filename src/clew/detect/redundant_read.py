@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from clew.cost.pricing import get_pricing
 from clew.detect.context_resend import _rate_and_cost_for_call
-from clew.detect.structural import _nearest_agent_ancestor_id
+from clew.detect.structural import identity_of
 from clew.model import Span, Trace
 
 if TYPE_CHECKING:
@@ -166,6 +166,12 @@ class RedundantReadEvent:
     waste_tokens: int
     waste_cost: float
     confirmed: bool
+    # CROSS_AGENT_ATTRIBUTION_PREREG §10: the two reads' identities, and whether
+    # they differ. Defaults keep every existing construction valid; the report
+    # emits the two names only when `cross_agent` is true.
+    cross_agent: bool = False
+    origin_identity: str | None = None
+    candidate_identity: str | None = None
 
 
 @dataclass
@@ -279,6 +285,8 @@ def find_redundant_reads(
 
     spans_by_id = {s.span_id: s for s in trace.spans}
 
+    spans_by_id = {s.span_id: s for s in trace.spans}
+
     # Pre-compute target and read-flag per tool span.
     span_meta: dict[str, tuple[str | None, bool, bool, bool]] = {}
     for s in tool_spans:
@@ -306,12 +314,22 @@ def find_redundant_reads(
         # in the target group; every subsequent read after the last
         # eligible origin is a candidate.
         origin = read_spans[0]
-        origin_agent = _nearest_agent_ancestor_id(origin.parent_span_id, spans_by_id)
+        # The SPEC §16 parent-AGENT gate used to drop a pair whose two reads sat
+        # under different AGENT spans. It classifies instead
+        # (CROSS_AGENT_ATTRIBUTION_PREREG §10.1): a read duplicated across an
+        # agent boundary is still a redundant read, and the event says which two
+        # agents. Measured when the gate was still in place: it dropped 0 events
+        # on every corpus we hold, so this widens where the label can fire
+        # without moving a figure.
+        origin_identity = identity_of(origin.parent_span_id, spans_by_id)
 
         for cand in read_spans[1:]:
-            cand_agent = _nearest_agent_ancestor_id(cand.parent_span_id, spans_by_id)
-            if cand_agent != origin_agent:
-                continue
+            candidate_identity = identity_of(cand.parent_span_id, spans_by_id)
+            cross_agent = (
+                origin_identity is not None
+                and candidate_identity is not None
+                and origin_identity != candidate_identity
+            )
 
             # Interval gate — no write-same-target, no shell tool between.
             interval_start = origin.end_time
@@ -355,6 +373,9 @@ def find_redundant_reads(
                 waste_tokens=waste_tokens,
                 waste_cost=waste_cost,
                 confirmed=confirmed,
+                cross_agent=cross_agent,
+                origin_identity=origin_identity,
+                candidate_identity=candidate_identity,
             ))
 
     # Order events by cand time indirectly (by iterating tool_spans order in a stable way).

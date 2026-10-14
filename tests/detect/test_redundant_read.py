@@ -150,8 +150,15 @@ def test_search_tool_target_via_query_hash():
     assert len(r.events) == 1
 
 
-def test_different_agent_parents_excluded():
-    """SPEC §16 gate: reads under different AGENT ancestors excluded."""
+def test_different_agent_parents_are_labelled_not_excluded():
+    """Reads under different AGENT ancestors: one event, naming both agents.
+
+    This assertion used to read `events == []` — the SPEC §16 gate. It is the
+    one existing assertion CROSS_AGENT_ATTRIBUTION_PREREG §10.3 permits
+    changing, on 세원님's waiver of §5 (2026-10-14). A read duplicated across an
+    agent boundary is still a redundant read; dropping it was the behaviour the
+    product's own positioning contradicts.
+    """
     agent_a = _mk_span("agent_a", "root", "agent", "agent_a", "", "", 5, dur_sec=30)
     agent_b = _mk_span("agent_b", "root", "agent", "agent_b", "", "", 5, dur_sec=30)
     a = _mk_span("a", "agent_a", "tool", "Read",
@@ -160,7 +167,53 @@ def test_different_agent_parents_excluded():
                  '{"file_path": "/tmp/x.py"}', "v", 20)
     trace = _trace([agent_a, agent_b, a, b])
     r = find_redundant_reads(trace)
-    assert r.events == []
+    assert len(r.events) == 1
+    ev = r.events[0]
+    assert (ev.origin_read_span_id, ev.read_span_id) == ("a", "b")
+    assert ev.cross_agent is True
+    assert (ev.origin_identity, ev.candidate_identity) == ("agent_a", "agent_b")
+    assert ev.confirmed is True
+
+
+def test_same_agent_parent_is_not_cross_agent():
+    """Two reads under one agent: an event as before, and not labelled."""
+    agent = _mk_span("agent_a", "root", "agent", "agent_a", "", "", 5, dur_sec=30)
+    a = _mk_span("a", "agent_a", "tool", "Read",
+                 '{"file_path": "/tmp/x.py"}', "v", 10)
+    b = _mk_span("b", "agent_a", "tool", "Read",
+                 '{"file_path": "/tmp/x.py"}', "v", 20)
+    r = find_redundant_reads(_trace([agent, a, b]))
+    assert len(r.events) == 1
+    assert r.events[0].cross_agent is False
+    assert r.events[0].origin_identity == "agent_a"
+
+
+def test_cross_agent_read_is_costed_like_any_other():
+    """§10.2: attribution changes, dollars do not.
+
+    The same two reads, once under one agent and once under two: the event's
+    waste tokens and cost must match, so the label cannot be read as a
+    surcharge.
+    """
+    def pair(parent_a: str, parent_b: str, extra: list) -> object:
+        a = _mk_span("a", parent_a, "tool", "Read",
+                     '{"file_path": "/tmp/x.py"}', "hello world " * 50, 10)
+        b = _mk_span("b", parent_b, "tool", "Read",
+                     '{"file_path": "/tmp/x.py"}', "hello world " * 50, 20)
+        return find_redundant_reads(
+            _trace([*extra, a, b], [_mk_llm_call("llm-1", 25, input_tokens=1000)])
+        )
+
+    agent_a = _mk_span("agent_a", "root", "agent", "agent_a", "", "", 5, dur_sec=30)
+    agent_b = _mk_span("agent_b", "root", "agent", "agent_b", "", "", 5, dur_sec=30)
+    same = pair("agent_a", "agent_a", [agent_a])
+    across = pair("agent_a", "agent_b", [agent_a, agent_b])
+
+    assert len(same.events) == len(across.events) == 1
+    assert same.events[0].cross_agent is False
+    assert across.events[0].cross_agent is True
+    assert same.events[0].waste_tokens == across.events[0].waste_tokens
+    assert same.events[0].waste_cost == across.events[0].waste_cost
 
 
 def test_confirmed_flag_when_outputs_differ():
