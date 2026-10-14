@@ -389,3 +389,38 @@ rather than report the count.
 fires on nothing we hold, and this amendment widens *where* it can fire by a
 detector whose gate was measured as dropping **0 events** on every corpus we
 have. No prevalence, dollar, or precision claim follows.
+
+### 10.6 Results — §10's predictions scored (2026-10-14)
+
+Implementation: the commit this section follows. Baseline is the merged state
+(`#259`), measured with the same script on the same data.
+
+| # | Prediction | Measured | Verdict |
+|---|---|---|---|
+| **Q1** | CC 120: 8 events, 269 tokens, $0.000807, cross-agent 0 | 8 / 269 / $0.000807 / **0** — byte-equal to baseline | ✅ |
+| **Q2** | TRAIL gaia and swe_bench: 0 events | 0 and 0 | ✅ |
+| **Q3** | trace-commons 28: `redundant_read` unchanged, cross-agent 0 | every `redundant_read` figure identical on all 28; cross-agent **0** | ✅ |
+| **Q4** | Exactly one existing assertion changes; suite otherwise green | **1112 passed, 1 xfailed, 0 failed**; the key-set assertion in `test_redundant_read_report_integration.py` passed **unedited** | ✅ |
+| **Q5** | A synthetic two-agent read pair is labelled, naming both | 1 event, `cross_agent` true, `agent_a` → `agent_b` | ✅ |
+
+The `repeat` side did not move either: the structural block is identical to the
+baseline on all four corpora, including the synthetic's single
+`cross_agent_repeat`.
+
+🔴 `union_waste_cost` differs on 5 of the 28 sessions by up to **6.9e-18** —
+the same field, the same magnitude, and the same cause as §9.1, which is
+frozenset iteration order in `waste_rate.py`, not this change. Every other
+figure is bit-identical.
+
+🔴 **§1.4 still holds, and that is the whole point of writing it down.** With
+both detectors now classifying instead of dropping, `cross_agent_repeat` and
+cross-agent redundant reads are **0 on Claude Code (120 and 28), 0 on TRAIL
+gaia, 0 on TRAIL swe_bench**. Opening the gate recovered **0 events** — exactly
+what §8.2 measured before the waiver was taken. The only positive case in
+existence is still the graph we wrote. No prevalence, dollar, or precision claim
+follows from either detector, and the homepage sentence is still not true.
+
+What did change: neither detector now deletes a duplicate for crossing an agent
+boundary, and in the case that it does cross one, both reports say which two
+agents. The product can be pointed at a real multi-agent trace and asked the
+question. It has not been.
