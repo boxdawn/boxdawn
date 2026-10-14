@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from clew.detect.redundant_read import find_redundant_reads
 from clew.detect.structural import find_repeat_candidates, identity_of
 from clew.model import Span, Trace
 from clew.report._enrich import enrich
