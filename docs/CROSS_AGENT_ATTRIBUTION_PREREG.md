@@ -201,3 +201,64 @@ non-zero CC count as a **failure of the identity rule**, stop, and redesign.
 
 **No judge call. No API spend.** Every measurement behind this document was made
 with local corpora and a fake chat model.
+
+## 8. Scope amendment, before any code (2026-10-14)
+
+§1.3 and §1.4 were measured on **tool** pairs — the dry-run behind them
+(`_cross_agent_partition_dryrun.py`) skips every span whose `span_kind` is not
+`"tool"`. §2.4's wording ("No pair is discarded for having different AGENT
+ancestors") reads wider than that: it covers the groups keyed by
+`agent_or_node_id` alone, where no input gate applies. The two were written as
+if they said the same thing. They do not, and the difference was measured
+before the implementation existed:
+
+| corpus | non-tool pairs today | non-tool `repeat` if the gate goes | non-tool `cross_agent_repeat` | traces |
+|---|---:|---:|---:|---:|
+| Claude Code, 120 of `mimo-cc-1k`, seed 42 | 0 | 0 | **0** | 0 |
+| TRAIL gaia (117) | 10 | 56 | **86** | **39** |
+| TRAIL swe_bench (30) | 0 | 0 | 0 | 0 |
+
+🔴 All 86 are `chain`/`chain` pairs — the E3 shape the gate was added for
+(`Step 1` under `CodeAgent.run` against `Step 1` under `ToolCallingAgent.run`,
+same topical vocabulary, legitimately different roles). Under the wide reading
+**§1.4 is false and P2 is rejected**: the label would fire 86 times on a corpus
+the pre-registration says it fires 0 times on. Two shipped tests
+(`test_repeat_different_agent_parent_blocked`, `test_repeat_mixed_depth_blocked`)
+assert that drop, so the wide reading also trips §5's last KILL condition —
+an existing test would have to be edited.
+
+**8.1 Frozen: the partition is scoped to tool pairs.** A pair is eligible for
+`cross_agent_repeat` only when both spans have `span_kind == "tool"` — the pairs
+that carry the `(tool name, normalised input)` gate, and the only pairs §1.3
+measured. For every other kind the SPEC §16 gate stays exactly as shipped: a
+pair whose nearest AGENT ancestors differ is still dropped. This narrows §2.4;
+it changes no number in §1 and no prediction in §4.
+
+**8.2 `redundant_read`'s half of §2.4 is behaviour-identical here.** Measured
+the same way — the shipped detector against the detector with the gate
+neutralised:
+
+| corpus | events shipped | events with the gate off | added | waste tokens (both) |
+|---|---:|---:|---:|---:|
+| Claude Code, 120 of `mimo-cc-1k`, seed 42 | 8 | 8 | **0** | 269 |
+| TRAIL gaia (117) | 0 | 0 | 0 | 0 |
+| TRAIL swe_bench (30) | 0 | 0 | 0 | 0 |
+
+The gate drops **nothing** there on any corpus we hold, so removing it is a
+no-op on all three and P6 holds by measurement rather than by argument. No label
+is added to `RedundantReadEvent`: there is no positive case to label, and its
+JSON event schema is pinned by an exact key-set assertion in a shipped test
+(`tests/report/test_redundant_read_report_integration.py`), which §5 forbids
+editing. 🔴 **Known limit, stated here:** until that schema is reopened, a
+cross-agent redundant read would be reported as an ordinary redundant read.
+
+**8.3 What this amendment does not settle.** Whether the 86 `chain`/`chain`
+pairs are waste, false positives, or genuine cross-agent duplication is
+unexamined. They are excluded here because the gate's original justification
+(E3) is about exactly that shape and because no measurement in §1 covers them —
+not because they were judged. Deciding them needs the chain spans read one by
+one, and that is a separate document.
+
+Decision owner: 세원님, 2026-10-14. Measurements:
+`_cross_agent_nontool_scope.py`, `_cross_agent_redundant_read_scope.py`
+(diagnostics, uncommitted; raw counts reproduced above).
