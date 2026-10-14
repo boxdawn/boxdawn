@@ -320,6 +320,14 @@ def render_json(
         # Absent (not null) for other categories — old 4-label consumers unaffected.
         if ed.between_window is not None:
             entry["between_window"] = ed.between_window
+        # CROSS_AGENT_ATTRIBUTION_PREREG §2.3: present iff the pair is the
+        # cross-agent case, so a consumer that does not know the label sees no
+        # new keys. These two names are what makes the finding actionable —
+        # without them the reader is told two agents duplicated each other and
+        # not which two.
+        if ed.pattern_label == "cross_agent_repeat":
+            entry["origin_identity"] = ed.origin_identity
+            entry["candidate_identity"] = ed.candidate_identity
         ev = ev_by_sid.get(wd.candidate.span_id)
         if ev is not None:
             entry["turns_after"] = ev.turns_after

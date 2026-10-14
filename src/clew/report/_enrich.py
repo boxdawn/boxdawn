@@ -3,7 +3,8 @@
 Extracts:
 - file_path (or command) from candidate.input_text
 - origin/candidate turn from trace.metadata["cc_turn_index"]
-- pattern_label: "requery" when tool + input matches, "pingpong" when the
+- pattern_label: "cross_agent_repeat" when a tool pair's two spans belong to
+  different agents, "requery" when tool + input matches, "pingpong" when the
   pingpong detector produced the pair, else "repeat"
 - modified_in_between: any Write/Edit-family span between origin and candidate
   targeting the same file_path (False when file_path unavailable — see uncertain flag)
@@ -15,7 +16,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from clew.detect.structural import find_candidates, find_pingpong_candidates
+from clew.detect.structural import find_candidates, find_pingpong_candidates, identity_of
 from clew.model import Span, Trace
 from clew.report._model import WasteDetail
 
@@ -366,6 +367,11 @@ class EnrichedDetail:
     input_summary: str  # fallback display when neither file_path nor command
     category: str  # error_repeat | side_effect | idempotent | unclassified
     between_window: str | None  # PREREG §1.3; set iff category == "idempotent"
+    # CROSS_AGENT_ATTRIBUTION_PREREG §1.3 identities of the pair's two spans.
+    # Both set on every pair; they differ only when pattern_label is
+    # `cross_agent_repeat`, which is the pair of names the report prints.
+    origin_identity: str | None = None
+    candidate_identity: str | None = None
 
 
 @dataclass
@@ -497,7 +503,11 @@ def _command_of(obj: Any) -> str | None:
 
 
 def _classify_pattern(
-    origin: Span, cand: Span, pingpong_pairs: set[tuple[str, str]]
+    origin: Span,
+    cand: Span,
+    pingpong_pairs: set[tuple[str, str]],
+    origin_identity: str | None = None,
+    candidate_identity: str | None = None,
 ) -> str:
     """Name the pair the way the detector that produced it is named.
 
@@ -516,8 +526,21 @@ def _classify_pattern(
     Membership in `pingpong_pairs` is the whole test: the detector requires all
     four spans of the A->B->A->B window to be llm spans, so a kind check here
     would be a second, weaker copy of a rule that already holds.
+
+    `cross_agent_repeat` is checked before `requery` and is scoped to tool pairs
+    (CROSS_AGENT_ATTRIBUTION_PREREG §2.3, §8.1). It comes first because the two
+    are not alternatives on the same axis: a tool pair with matching input *and*
+    two different agents is the cross-agent case, and calling it `requery` would
+    report the one duplicate we claim to care about as the one we do not.
+    The identities are the caller's: `enrich` resolves them once per trace.
     """
     if origin.span_kind == "tool" and cand.span_kind == "tool":
+        if (
+            origin_identity is not None
+            and candidate_identity is not None
+            and origin_identity != candidate_identity
+        ):
+            return "cross_agent_repeat"
         if origin.input_text.strip().casefold() == cand.input_text.strip().casefold():
             return "requery"
     if (origin.span_id, cand.span_id) in pingpong_pairs:
@@ -825,6 +848,7 @@ def enrich(
     pingpong_pairs = {
         (o.span_id, c.span_id) for o, c in find_pingpong_candidates(trace)
     }
+    spans_by_id = {s.span_id: s for s in trace.spans}
     for wd in details:
         o, c = wd.origin, wd.candidate
         if o.span_id in error_ids or c.span_id in error_ids:
@@ -833,7 +857,11 @@ def enrich(
         parsed = _parse_input(c.input_text)
         fp = _file_path_of(parsed)
         cmd = _command_of(parsed)
-        pattern = _classify_pattern(o, c, pingpong_pairs)
+        origin_identity = identity_of(o.parent_span_id, spans_by_id)
+        candidate_identity = identity_of(c.parent_span_id, spans_by_id)
+        pattern = _classify_pattern(
+            o, c, pingpong_pairs, origin_identity, candidate_identity
+        )
         modified = _has_intervening_edit(trace, o, c, fp) if fp else False
         uncertain = fp is None  # cannot verify state change without a file target
         summary = fp or cmd or (c.input_text[:60] + ("…" if len(c.input_text) > 60 else ""))
@@ -856,5 +884,7 @@ def enrich(
             input_summary=summary,
             category=category,
             between_window=between_window,
+            origin_identity=origin_identity,
+            candidate_identity=candidate_identity,
         ))
     return EnrichmentResult(enriched=out, n_skipped_error=n_skipped_error)
