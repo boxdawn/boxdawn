@@ -244,13 +244,23 @@ neutralised:
 | TRAIL gaia (117) | 0 | 0 | 0 | 0 |
 | TRAIL swe_bench (30) | 0 | 0 | 0 | 0 |
 
-The gate drops **nothing** there on any corpus we hold, so removing it is a
-no-op on all three and P6 holds by measurement rather than by argument. No label
-is added to `RedundantReadEvent`: there is no positive case to label, and its
-JSON event schema is pinned by an exact key-set assertion in a shipped test
-(`tests/report/test_redundant_read_report_integration.py`), which §5 forbids
-editing. 🔴 **Known limit, stated here:** until that schema is reopened, a
-cross-agent redundant read would be reported as an ordinary redundant read.
+The gate drops **nothing** there on any corpus we hold, so P6 holds by
+measurement rather than by argument.
+
+🔴 **Correction, after running the suite:** this section first said the gate
+would be removed there. It is not, and the reason is §5's own last condition —
+`tests/detect/test_redundant_read.py::test_different_agent_parents_excluded`
+asserts `events == []` for two reads under different AGENT ancestors, so
+removing the gate requires editing a shipped assertion. The gate therefore
+**stays in `redundant_read`**, and §2.4's second half is deferred. What that
+costs is measured above: **0 events on all three corpora**. No label is added to
+`RedundantReadEvent` either — there is no positive case to label, and its JSON
+event schema is pinned by an exact key-set assertion in another shipped test
+(`tests/report/test_redundant_read_report_integration.py`).
+
+🔴 **Known limit, stated plainly:** `redundant_read` still drops a cross-agent
+pair, which is the behaviour §0 objects to. Reopening it needs a decision to
+waive §5 for those two tests — a decision, not an implementation detail.
 
 **8.3 What this amendment does not settle.** Whether the 86 `chain`/`chain`
 pairs are waste, false positives, or genuine cross-agent duplication is
