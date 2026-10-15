@@ -496,3 +496,79 @@ def test_an_assistant_line_without_a_message_id_is_its_own_turn(tmp_path):
 
     assert trace.metadata["cc_total_turns"] == 2
     assert trace.metadata["cc_total_turns"] == len(trace.metadata["llm_calls"])
+
+
+def _compacted_session_entries() -> list[dict[str, Any]]:
+    """The base session, then an auto-compaction, then one more call.
+
+    Claude Code writes the boundary as a `system` entry and the summary as a
+    `user` entry with `isCompactSummary: true`; the call after it is billed for
+    the summary and what follows, not for the history before it.
+    """
+    entries = _base_session_entries()
+    entries.extend([
+        {
+            "type": "system",
+            "subtype": "compact_boundary",
+            "sessionId": "sess-A",
+            "uuid": "s-1",
+            "timestamp": "2026-01-01T00:00:03.000Z",
+            "compactMetadata": {"trigger": "auto", "preTokens": 167130},
+        },
+        {
+            "type": "user",
+            "sessionId": "sess-A",
+            "uuid": "u-3",
+            "timestamp": "2026-01-01T00:00:04.000Z",
+            "isCompactSummary": True,
+            "message": {
+                "role": "user",
+                "content": [{"type": "text", "text": "summary of the session so far"}],
+            },
+        },
+        {
+            "type": "assistant",
+            "sessionId": "sess-A",
+            "uuid": "a-2",
+            "timestamp": "2026-01-01T00:00:05.000Z",
+            "message": {
+                "id": "msg_002",
+                "model": "claude-sonnet-4-6",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "continuing"}],
+                "usage": {
+                    "input_tokens": 50,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                    "output_tokens": 10,
+                },
+            },
+        },
+    ])
+    return entries
+
+
+def test_compaction_summary_restarts_the_input(tmp_path):
+    """Distinguishes: after a compaction, input_text holding the summary alone
+    (what was sent) from input_text still holding the history before it."""
+    p = _write_jsonl(tmp_path, _compacted_session_entries())
+    calls = ingest_claude_code_jsonl(p).metadata["llm_calls"]
+
+    assert len(calls) == 2
+    after = json.loads(calls[1]["input_text"])
+    assert after == [{
+        "role": "user",
+        "content": [{"type": "text", "text": "summary of the session so far"}],
+    }]
+    assert "result of hello search" not in calls[1]["input_text"]
+
+
+def test_compaction_leaves_the_calls_before_it_alone(tmp_path):
+    """The reset applies from the summary on; earlier calls are unchanged."""
+    plain = ingest_claude_code_jsonl(_write_jsonl(tmp_path, _base_session_entries()))
+    (tmp_path / "c").mkdir()
+    compacted = ingest_claude_code_jsonl(
+        _write_jsonl(tmp_path / "c", _compacted_session_entries()))
+
+    assert (compacted.metadata["llm_calls"][0]["input_text"]
+            == plain.metadata["llm_calls"][0]["input_text"])
