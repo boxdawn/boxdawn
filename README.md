@@ -229,13 +229,16 @@ New in Tier 1. Measures the input-side cost of chunks (message-array elements) r
 
 Aggregate over the same trace-commons corpus (28 CC sessions, `data/hf_recon/trace_commons_paths.txt`, `random.Random(seed=42)` order):
 
-- **`resent_cost / total_input_cost = 0.9851`** (98.5%)
-- Per-trace ratios cluster at 98-99%; **95% bootstrap CI [0.9796, 0.9878]** (`n_boot=1000, seed=42`)
-- Pre-registered §7 threshold `≥ 0.20` → **GO**
+- **`resent_cost / total_input_cost = 0.8448`** (84.5%) on the billed basis, over the 23 sessions priced on both sides (`124.7191 / 147.6331`); per-session median 0.7813
+- **95% bootstrap CI [0.8102, 0.8730]** (`n_boot=1000, seed=42`)
+- By tokens rather than dollars, resent / input over all 28 sessions is 0.9851
+- Pre-registered §7 threshold `≥ 0.20` → **GO** on either basis
 
-**Caching caveat — the estimate in this paragraph was wrong, and the measurement it asked for now exists.** It read: *"Anthropic `cache_read_input_tokens` bills at ~10% of the input rate. The 98.5% structural resend corresponds to roughly 8-15% of effective billed input cost … requires a v2 cache-tier split to measure directly."* The cache-tier split was built, and on the billed basis the same corpus measures **97.3%**, not 8-15%.
+Until 0.5.16 the first line read **0.9851** on a no-cache basis: every input token priced at the base rate. The detector has priced by cache tier since 0.5.13, so that basis is retired. The token ratio happens to round to the same four digits; it is a different quantity. See the [2026-10-15 correction](#correction-2026-10-15--corpus-a-wr_cost-was-09731).
 
-The estimate assumed the cache discount applies to the resent tokens and not to the total. It applies to both. When most of a session's input is a cache read, the numerator and the denominator are discounted together and the **ratio barely moves** — that is what a ratio does. The 0.9851 above is on the no-cache basis and stands; what changed is the guess about what the billed basis would show. See the correction note below, which is the same arithmetic error found in the same corpus from the other direction.
+**Caching caveat — the estimate in this paragraph was wrong, and the measurement it asked for now exists.** It read: *"Anthropic `cache_read_input_tokens` bills at ~10% of the input rate. The 98.5% structural resend corresponds to roughly 8-15% of effective billed input cost … requires a v2 cache-tier split to measure directly."* The cache-tier split was built, and on the billed basis the same corpus measures **84.5%** (97.3% before the [2026-10-15 correction](#correction-2026-10-15--corpus-a-wr_cost-was-09731)), not 8-15%.
+
+The estimate assumed the cache discount applies to the resent tokens and not to the total. It applies to both. When most of a session's input is a cache read, the numerator and the denominator are discounted together and the **ratio barely moves** — that is what a ratio does. The no-cache 0.9851 this paragraph was written against has since been retired (see above); what this paragraph corrected is the guess about what the billed basis would show. See the correction note below, which is the same arithmetic error found in the same corpus from the other direction.
 
 Pre-registration + honesty preface: [`docs/CONTEXT_RESEND_DETECTOR_PREREG.md`](https://github.com/boxdawn/boxdawn/blob/main/docs/CONTEXT_RESEND_DETECTOR_PREREG.md).
 
@@ -245,22 +248,22 @@ Union of the four deterministic detectors (`repeat`, `context_resend`, `redundan
 
 | Corpus | Included | `union_wr_char` | `union_wr_cost` | `union_sdr_at_10` | 95% bootstrap CI on `wr_char` |
 |---|---:|---:|---:|---:|---|
-| A · trace-commons (28 CC sessions) | 28 / 28 · cost 23 / 28 | **0.9930** | **0.9731** ([corrected](#correction-2026-09-01--corpus-a-wr_cost-was-02903), was 0.2903) | **0.9643** | [0.9892, 0.9944] |
+| A · trace-commons (28 CC sessions) | 28 / 28 · cost 23 / 28 | **0.9916** ([corrected](#correction-2026-10-15--corpus-a-wr_cost-was-09731), was 0.9930) | **0.8449** ([corrected](#correction-2026-10-15--corpus-a-wr_cost-was-09731), was 0.9731; [before that](#correction-2026-09-01--corpus-a-wr_cost-was-02903) 0.2903) | **0.9643** | [0.9839, 0.9939] |
 | B · Toolathlon (6,780 non-coding trajectories, 22 frontier models) | 6,659 / 6,780 | **0.9342** | **0.9202** | **0.9908** | [0.9314, 0.9368] |
 | C · Exgentic Agent LLM Traces v2 (10,056 sessions, 5 frontier models × 6 benchmarks, up to 3.7M tokens / session) | 10,056 / 10,056 | **0.9233** | **0.9397** | **0.9332** | per-session mean [0.7827, 0.7920] — union CI not computed, see [amendment §10.2](https://github.com/boxdawn/boxdawn/blob/main/docs/WASTE_RATE_EXGENTIC_ADAPTER_AMENDMENT_PREREG.md#102-aggregate-post-adapter) |
 | D · MIMO Claude Code traces (1,017 generated sessions, single model `mimo-v2.5-pro`, median 4 tool calls) | 859 / 1,017 | **0.7993** | — (model absent from the pricing table, [prereg §3](https://github.com/boxdawn/boxdawn/blob/main/docs/WASTE_RATE_CORPUS_D_MIMO_CC_PREREG.md#3-pricing-this-corpus-cannot-carry-a-wr_cost-figure)) | **0.9441** | [0.7776, 0.8168] |
 
 Corpus B `WR_cost = 0.9202` — the [Cost Table Toolathlon Expansion](https://github.com/boxdawn/boxdawn/blob/main/docs/COST_TABLE_TOOLATHLON_EXPANSION_PREREG.md) (2026-08-11) closed the 98.2% pricing gap first (bringing the raw scan to 0.9189), and the [union arithmetic amendment §14](https://github.com/boxdawn/boxdawn/blob/main/docs/WASTE_RATE_METRIC_PREREG.md#14-amendment--union_wr_cost-per-span-attribution-2026-08-15) (2026-08-15) restored `redundant_read`'s +0.0013 previously dropped by a span-metadata recomputation shortcut. 6,780 / 6,780 (100%) built trajectories priced, median `cost_ratio = 1.000` against Toolathlon's own provider-billed totals. Corpus B fidelity: 5,445 / 6,659 (81.8%) exact count-match against `agent_llm_requests`; the remaining 18.2% differ by exactly `+1` due to trajectories ending on a `role=tool` message (root-caused in amendment §10.2). Token sum invariant preserved on 100% of built traces.
 
-**Amendment prediction verdict.** P1 `union_wr_char ∈ [0.85, 0.999]`: pass (0.9342). P2 `union_sdr_at_10 ∈ [0.85, 1.00]`: pass (0.9908). P3 `union_wr_cost ∈ [0.10, 0.50]`: **miss** (0.9189). ⚠️ **The explanation published with this miss is superseded.** It read: *"the band was calibrated on Corpus A's cache-tier-aware billing; Toolathlon's adapter §1.4 encodes uncached-only billing by pre-commitment, so `WR_cost` collapses toward `WR_char`. Category error in the prediction, not a metric defect."* Both halves are now known to be wrong. The band was calibrated on Corpus A's **0.2903**, which the correction below shows was an artifact of two defects — so there *was* a metric defect, and Corpus A's denominator was not cache-tier-aware. On one basis the two corpora are **0.9731** and **0.9202**: they never differed by much, and the band was low for both. The miss stands as published; only its reason changes. Original: [Cost Table Expansion §8.7](https://github.com/boxdawn/boxdawn/blob/main/docs/COST_TABLE_TOOLATHLON_EXPANSION_PREREG.md); band and adapter unchanged. P4 `context_resend ≥ 95%` of union numerator: pass (99.76%). No prediction band was adjusted post-hoc.
+**Amendment prediction verdict.** P1 `union_wr_char ∈ [0.85, 0.999]`: pass (0.9342). P2 `union_sdr_at_10 ∈ [0.85, 1.00]`: pass (0.9908). P3 `union_wr_cost ∈ [0.10, 0.50]`: **miss** (0.9189). ⚠️ **The explanation published with this miss is superseded.** It read: *"the band was calibrated on Corpus A's cache-tier-aware billing; Toolathlon's adapter §1.4 encodes uncached-only billing by pre-commitment, so `WR_cost` collapses toward `WR_char`. Category error in the prediction, not a metric defect."* Both halves are now known to be wrong. The band was calibrated on Corpus A's **0.2903**, which the correction below shows was an artifact of two defects — so there *was* a metric defect, and Corpus A's denominator was not cache-tier-aware. On one basis the two corpora are **0.9731** and **0.9202** (Corpus A is now **0.8449**, [2026-10-15 correction](#correction-2026-10-15--corpus-a-wr_cost-was-09731)): they never differed by much, and the band was low for both. The miss stands as published; only its reason changes. Original: [Cost Table Expansion §8.7](https://github.com/boxdawn/boxdawn/blob/main/docs/COST_TABLE_TOOLATHLON_EXPANSION_PREREG.md); band and adapter unchanged. P4 `context_resend ≥ 95%` of union numerator: pass (99.76%). No prediction band was adjusted post-hoc.
 
 **Corpus D and what its prediction missed.** Corpus D was pre-registered before it was scanned, and one of its five predictions failed: P1 named `union_wr_char ∈ [0.80, 0.95]` and the scan returned **0.7993** — outside it, low, by 0.0007. The bootstrap CI [0.7776, 0.8168] straddles the boundary, but P1 was written about the point estimate and is reported as a miss. P2–P5 passed, P5 exactly (859 included, 158 excluded, zero ingest failures across 1,017 files). What the miss corrects is reach, not mechanism: split by session length the rate climbs monotonically — **0.3487** at 1–2 tool calls, **0.6453** at 3–5, **0.7767** at 6–10, **0.8802** at 11+ — so a corpus whose median session is four tool calls lands below a range estimated from corpora made of long ones. The per-session spread is wide by the same mechanism (p10 0.1722, p50 0.6297, p90 0.8104), which is why no single-session figure from this corpus may be cited. `WR_cost` is absent rather than suppressed: `mimo-v2.5-pro` is not in the pricing table, and the summed input cost across all 859 traces is 0.0. Full result: [`docs/WASTE_RATE_CORPUS_D_MIMO_CC_RESULTS.md`](https://github.com/boxdawn/boxdawn/blob/main/docs/WASTE_RATE_CORPUS_D_MIMO_CC_RESULTS.md).
 
 **Reading the numbers honestly.** LLM APIs are stateless — every call must include the full conversation. Some resend is mechanically required. `WR_char` measures the total resend footprint in bytes; `WR_cost` measures **the share of what was actually billed for input that went to sending the same thing again**.
 
-Corpus A **97.3%** and Corpus B **92.0%** are now on the same basis and are close, which is the finding. The earlier version of this paragraph read the gap between them (29% vs 92%) as "the caching lever's leverage" — **that reading was an artifact.** The two figures were never on the same footing: Corpus A's denominator was priced as though no caching existed while its numerator was priced as billed, and Corpus B's adapter pre-commits to uncached-only billing (§1.4) so both of its sides were already consistent. Corpus A was the only one mixed.
+Corpus A **84.5%** (97.3% before the [2026-10-15 correction](#correction-2026-10-15--corpus-a-wr_cost-was-09731)) and Corpus B **92.0%** are now on the same basis and in the same range, which is the finding. The earlier version of this paragraph read the gap between them (29% vs 92%) as "the caching lever's leverage" — **that reading was an artifact.** The two figures were never on the same footing: Corpus A's denominator was priced as though no caching existed while its numerator was priced as billed, and Corpus B's adapter pre-commits to uncached-only billing (§1.4) so both of its sides were already consistent. Corpus A was the only one mixed.
 
-What the corrected figures say instead: **caching changes what you pay, not what fraction of it is resend.** Both sides of the ratio get the discount. A session that caches well pays less in absolute dollars — Corpus A's priced sessions bill $149.47 where the no-cache counterfactual is $1,130.76 — and still spends about the same *share* of that bill on context it had already sent. The absolute saving is real and large; the ratio is not where it shows up.
+What the corrected figures say instead: **caching changes what you pay, not what fraction of it is resend.** Both sides of the ratio get the discount. A session that caches well pays less in absolute dollars — Corpus A's priced sessions billed $149.47 against a no-cache counterfactual of $1,130.76 when both were last computed (2026-09-01) — and still spends about the same *share* of that bill on context it had already sent. The absolute saving is real and large; the ratio is not where it shows up.
 
 <a id="correction-2026-09-01--corpus-a-wr_cost-was-02903"></a>
 
@@ -279,7 +282,33 @@ Pre-registrations, results and the rejected predictions: [`WR_COST_PRICE_BASIS_A
 
 **This correction moves our own headline figure up by 3.35×.** That is the direction a reader should be most suspicious of, which is why the arithmetic, the old number and the two rejected predictions are all above rather than summarized away.
 
-**Note on `union_wr_char` vs `Context Resend Detector 98.5%` above.** These are two different measurements. `Context Resend Detector 98.5%` is `resent_cost / total_input_cost` on 28 CC sessions, single-detector. `union_wr_char` is the union across all four Tier 1 detectors on the same 28 CC sessions (`0.9930`), plus the 6,780-trajectory Corpus B extension. Both numbers are correct for their respective definitions; they are not interchangeable.
+<a id="correction-2026-10-15--corpus-a-wr_cost-was-09731"></a>
+
+**Correction, 2026-10-15: Corpus A `union_wr_cost` was published as 0.9731 and is 0.8449.** Two causes, both pushing the same way.
+
+1. **Later pricing fixes were never carried into this table.** Between 2026-09-01 and 0.5.15, releases changed how Claude Code calls are counted and how resent tokens are priced (`#247`, `#249`, `#250` among them). The cited trace's figures were re-measured and republished each time; this table was not. On code with those fixes and without the next one, the 23 priced sessions give **129.6614 / 147.6331 = 0.8783**. The numerator fell 10.9%, the denominator 1.2%, and 22 of the 23 sessions moved down. We did not split the drop between the individual fixes. Re-running the 2026-09-01 artifact by the same method reproduces 0.9731 exactly, so the gap comes from the code, not the method.
+2. **The Claude Code adapter ignored context compaction.** Fixed in 0.5.16 (`#278`). After an auto-compaction, Claude Code sends a summary in place of the history. The adapter kept the history, so the resend detector counted unsent context as resent. 7 of the 28 sessions compact. With the fix the figure is **124.7402 / 147.6331 = 0.8449**. All 7 move down, the largest from 0.8549 to 0.7557, and the other 21 are byte-identical.
+
+| | `union_wr_char` (28) | `union_wr_cost` (23 priced) | `union_sdr_at_10` |
+|---|---:|---:|---:|
+| published 2026-09-01 | 0.9930 | 0.9731 | 0.9643 |
+| with later pricing fixes, before 0.5.16 | 0.9925 | 0.8783 | 0.9643 |
+| 0.5.16 | **0.9916** | **0.8449** | 0.9643 |
+
+The per-session `wr_cost` spread is now p10 **0.3122**, median **0.7815** and p90 **0.9190**. It was 0.5286, 0.9585 and 0.9859.
+
+Scope, checked rather than assumed:
+
+- The cited trace behind the home page's 88.7% has no compaction, and its published figures are identical on 0.5.16.
+- Corpus D (MIMO, 1,017 sessions) has no compaction entry and does not move.
+- Corpus B and C use other adapters, which the compaction fix does not touch. **They have not been re-measured against the later pricing fixes**, so their `WR_cost` figures stand as published until they are.
+- Still open: in 1,557 trace-commons calls the reconstructed input measures more tokens than were billed. The causes are images (the tokenizer counts base64 by length) and one cause not yet identified. This release does not fix it.
+
+Details are in [`docs/CONTEXT_RESEND_DECOMPOSITION_RESULTS.md`](https://github.com/boxdawn/boxdawn/blob/main/docs/CONTEXT_RESEND_DECOMPOSITION_RESULTS.md) §6.
+
+**This correction moves our headline figure down, by 0.128.** We found both causes ourselves: the first by re-running a published figure against shipped code, the second while checking a result of our own.
+
+**Note on `union_wr_char` vs `Context Resend Detector 84.5%` above.** These are two different measurements. `Context Resend Detector 84.5%` is `resent_cost / total_input_cost` on the 23 priced CC sessions, single-detector. `union_wr_char` is the union across all four Tier 1 detectors on the same 28 CC sessions (`0.9916`), plus the 6,780-trajectory Corpus B extension. Both numbers are correct for their respective definitions; they are not interchangeable.
 
 ### Redundant Read Detector — standalone
 
