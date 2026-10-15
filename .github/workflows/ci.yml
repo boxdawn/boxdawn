@@ -48,6 +48,25 @@ jobs:
       - name: Run pytest
         run: pytest -q
 
+  tests-adapter:
+    name: Test suite ([adapter] extra)
+    # The two jobs above install `.[dev]` only, which leaves out langchain-core,
+    # langgraph and opentelemetry. Five test files skip at import without them,
+    # among them the whole of `tests/autofix/` -- so `clew.autofix`, which ships
+    # in the wheel, has had no line run in CI, and the adapter floor in
+    # `test_suite_floor.py` has never been checked here. The `.[dev]` jobs stay
+    # as they are: they show the suite holds without the extra.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install with dev and adapter extras
+        run: pip install ".[dev,adapter]"
+      - name: Run pytest
+        run: pytest -q -rs
+
   tests-windows:
     name: Test suite (Windows)
     # The suite has a Windows-only test and it has never run anywhere. `schtasks
