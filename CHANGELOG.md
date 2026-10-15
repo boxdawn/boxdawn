@@ -2,6 +2,42 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.16 — 2026-10-15 · **압축된 대화를 압축 전 대화로 읽지 않는다**
+
+Claude Code 는 대화가 길어지면 앞부분을 요약본으로 바꿔 보낸다(auto-compaction).
+한 세션에서 경계를 넘자 청구 입력이 **166,540 → 35,791** 토큰으로 떨어졌다.
+어댑터는 그 경계를 기록만 하고 입력 재구성에는 안 썼다 — 압축 뒤 모든 호출의
+`input_text` 가 **보내지 않은 이력**을 계속 들고 있었고, 재전송 탐지기는 그것을
+재전송으로 셌다.
+
+### 수정 — 요약본에서 입력을 다시 시작한다 (`#278`)
+
+`isCompactSummary: true` 인 user 항목을 만나면 쌓인 메시지 목록을 비우고 요약본부터
+다시 쌓는다. 압축이 없는 세션은 **바이트 단위로 동일**하다.
+
+### 공개 수치 — 🔴 **움직인다**(README Corpus A), 홈 수치는 안 움직인다
+
+| trace-commons (Corpus A) | README 이전 | **0.5.16** |
+|---|---:|---:|
+| `union_wr_cost` (가격 매겨진 23세션) | 0.9731 | **0.8449** |
+| `union_wr_char` (28) | 0.9930 | **0.9916** |
+| `union_sdr_at_10` | 0.9643 | 0.9643 |
+| `context_resend` 단독 (청구 기준, 23) | 0.9851 (캐시 없음 가정 — 폐기) | **0.8448** |
+
+🔴 **이동분의 대부분은 이 릴리스가 아니다.** README 의 0.9731 은 9/1 이후 가격 수정
+(`#247`·`#249`·`#250`)을 이 표에 반영하지 않은 값이었다 — 같은 방법으로 9/1 산출물을
+돌리면 0.9731 이 정확히 재현되고, 그 수정들만 반영하면 **0.8783**. 이 릴리스의 몫은
+0.8783 → **0.8449**(−0.0333). README 에 정정 절을 새로 달았다(2026-10-15).
+
+✅ **인용 트레이스**(`agent-race/claude-code.jsonl`)는 compaction 이 없어 **여덟 값 전부
+0.5.15 와 동일**: `total_analyzed_cost $1.9723945` · `total_llm_input_cost $1.5958695` ·
+`total_waste_cost $0.9015315` · `waste_ratio 0.457075` · 재전송 `1,415,467 / 1,596,520`
+(**88.7%**). Corpus D(MIMO 1,017세션)는 compaction **0건** — 불변.
+
+🔴 **안 고친 것**: trace-commons 1,557 콜에서 재구성 입력이 여전히 청구보다 크다 —
+이미지(base64 를 토크나이저가 길이로 셈)와 원인 미확인 하나. Corpus B·C 는 9/1 이후
+가격 수정 반영 여부를 **다시 재지 않았다**(README 에 그대로 적었다).
+
 ## 0.5.15 — 2026-10-14 · **에이전트 경계를 넘은 중복을 지우지 않고 이름을 붙인다**
 
 제품 설명은 "**에이전트들 사이의** 낭비"를 말하는데, 결정론 탐지기 둘은 정확히 그
