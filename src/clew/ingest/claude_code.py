@@ -253,6 +253,14 @@ def _extract_llm_calls(
       its combined content as a single `assistant` message on the next round.
       This matches what the Anthropic API sees as the input to that turn.
 
+      Compaction restarts it. A `user` entry with `isCompactSummary: true` is
+      the summary Claude Code sends in place of everything before it, so the
+      accumulated list is emptied before that entry is added. Without the
+      reset, every call after a compaction carried history that was not sent:
+      on trace-commons, 1,056 calls in 7 sessions measured more tokens than
+      they were billed for, and the resend detector counted that history as
+      resent (docs/CONTEXT_RESEND_DECOMPOSITION_RESULTS.md §6).
+
     input_tokens:
       Sum of `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`
       from the usage dict. All three are input-side; cache_read is billed
@@ -288,7 +296,11 @@ def _extract_llm_calls(
         content = msg.get("content")
 
         if etype == "user":
-            last_item = {"role": "user", "content": content}
+            last_item = {
+                "role": "user",
+                "content": content,
+                "compact_summary": entry.get("isCompactSummary") is True,
+            }
             sequence.append(last_item)
             continue
 
@@ -344,6 +356,8 @@ def _extract_llm_calls(
 
     for item in sequence:
         if item["role"] == "user":
+            if item.get("compact_summary"):
+                accumulated = []
             accumulated.append({
                 "role": "user",
                 "content": item["content"],
