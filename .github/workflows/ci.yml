@@ -56,6 +56,12 @@ jobs:
     # in the wheel, has had no line run in CI, and the adapter floor in
     # `test_suite_floor.py` has never been checked here. The `.[dev]` jobs stay
     # as they are: they show the suite holds without the extra.
+    #
+    # The seven tests deselected below embed text with the [semantic] model,
+    # which this job does not install. They pass locally only because a
+    # gitignored `.cache/embeddings/embeddings.sqlite` already holds the
+    # vectors; without it they fail on `import torch`. Running them in CI is a
+    # separate decision about installing torch and downloading the model.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +71,15 @@ jobs:
       - name: Install with dev and adapter extras
         run: pip install ".[dev,adapter]"
       - name: Run pytest
-        run: pytest -q -rs
+        run: >-
+          pytest -q -rs
+          --deselect tests/test_field_regressions.py::test_r1_clean_no_false_fire
+          --deselect tests/test_field_regressions.py::test_r2_repeat_node_true_positive
+          --deselect tests/test_field_regressions.py::test_r3_router_adversarial_no_false_fire
+          --deselect tests/test_field_regressions.py::test_r4_json_extraction_reduces_cosine
+          --deselect tests/test_report_cli.py::test_d1_waste_report_contains_key_fields
+          --deselect tests/test_report_cli.py::test_d2_clean_report_no_waste
+          --deselect tests/test_report_cli.py::test_d3_serialization_roundtrip
 
   tests-windows:
     name: Test suite (Windows)
