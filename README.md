@@ -295,7 +295,7 @@ Pre-registrations, results and the rejected predictions: [`WR_COST_PRICE_BASIS_A
 | with later pricing fixes, before 0.5.16 | 0.9925 | 0.8783 | 0.9643 |
 | 0.5.16 | **0.9916** | **0.8449** | 0.9643 |
 
-The per-session `wr_cost` spread is now p10 **0.3122**, median **0.7815** and p90 **0.9190**. It was 0.5286, 0.9585 and 0.9859.
+Verified on 0.5.16, 2026-10-15: the per-session `wr_cost` spread is p10 **0.3122**, median **0.7815** and p90 **0.9190**, against 0.5286, 0.9585 and 0.9859 on 2026-09-01.
 
 Scope, checked rather than assumed:
 
