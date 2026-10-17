@@ -877,7 +877,10 @@ def main() -> None:
         help=(
             "ask whether the session checked the code it changed (opt-in, "
             "FM-3.2). One call per trace to the Anthropic API with your "
-            "ANTHROPIC_API_KEY; measured at $0.0046 and 1.8 s per session. "
+            "ANTHROPIC_API_KEY. Measured on the hosted analyzer on "
+            "2026-10-17: $0.019 to $0.040 per trace over four public "
+            "traces; the judge's input is cut at 120,000 characters, which "
+            "the two largest reached. "
             "Without a key the report says 'not judged' and the exit code is "
             "still 0. Precision on 40 hand-labelled sessions: 0.9286 "
             "without the request in the judge's view, 1.0000 with it "
