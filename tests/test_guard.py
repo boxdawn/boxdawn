@@ -84,6 +84,15 @@ def test_decide_deny_carries_both_fields():
     assert out["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
 
 
+def test_amounts_under_a_dollar_keep_four_decimals():
+    _, out = guard.decide({"usd": 0.012038, "unpriced_models": []}, 0.012, 0.3)
+    assert "spent $0.0120 >= cap $0.0120" in out["stopReason"]
+    _, out = guard.decide({"usd": 0.005433, "unpriced_models": []}, 0.012, 0.3)
+    assert out["systemMessage"].endswith("spent $0.0054, 45% of the $0.0120 cap")
+    _, out = guard.decide({"usd": 5.123, "unpriced_models": []}, 5.0, None)
+    assert "spent $5.12 >= cap $5.00" in out["stopReason"]
+
+
 def test_decide_warn_and_allow():
     assert guard.decide({"usd": 4.0, "unpriced_models": []}, 5.0, 0.8)[0] == "warn"
     assert guard.decide({"usd": 3.9, "unpriced_models": []}, 5.0, 0.8) == ("allow", None)
