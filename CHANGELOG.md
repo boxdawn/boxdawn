@@ -2,6 +2,47 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.18 — 2026-10-17 · **정한 금액을 쓰면 Claude Code 세션을 멈춘다**
+
+새 명령 `boxdawn guard`. 고객이 정한 달러 상한에 닿으면 다음 도구 호출을 거부하고
+세션을 멈춘다. 반복·패턴으로는 멈추지 않는다 — 손으로 코딩한 Claude Code 반복 38건 중
+23건이 수정 후 재확인이었다(`docs/ACCEPTED_PAIR_PRECISION_RESULTS.md`).
+
+### 사용 (`#282` · `#283`)
+
+```
+boxdawn guard install --cap-usd 5 [--warn-at 0.8]   # 이 프로젝트에 설치
+boxdawn guard status                                # 상한 · 차단/경고된 세션 수
+boxdawn guard uninstall
+```
+
+- 프로젝트 `.claude/settings.local.json` 의 `PreToolUse` 에 훅 하나를 넣는다(다른 항목은 그대로).
+  공유 `settings.json` 이 아닌 이유: 훅 명령에 이 컴퓨터의 Python 절대경로가 들어간다.
+- 도구 호출 직전마다 메인 + 하위 에이전트 기록(`subagents/*.jsonl`)을 `message.id` 당 1콜로
+  세고, 리포트와 같은 가격표(`clew.cost.pricing`)로 다섯 칸을 따로 매긴다.
+- 상한 이상 → `continue:false` + `permissionDecision:"deny"`. `--warn-at` 이면 세션당 한 번 경고.
+- 가격표에 없는 모델은 Sonnet 4.5 기본 요율로 **세고** 문구에 "lower bound" 를 붙인다.
+- 기록은 `~/.clew/guard_events.jsonl` 에만. 밖으로 나가는 것 없음.
+
+### 확인한 것
+
+- 인용 트레이스 `agent-race/claude-code.jsonl`: 가드 합계 **$1.9723945 · 27콜** = 공개 `total_analyzed_cost`.
+- Claude Code 2.1.299 `-p`: 상한 $5 에서 명령 실행 · $0.000001 에서 거부(파일 안 생김).
+- 대화형(사람이 화면 확인): 경고는 `PreToolUse:Bash says: …`, 차단 사유는
+  `hook stopped continuation: …` 로 **화면에 보인다**. 하위 에이전트 안에서도 멈춘다.
+
+### 🔴 한계
+
+- 합계는 **직전 호출까지**다(대화형에서 현재 호출은 아직 기록 전). 상한을 호출 1~2번 분량 넘길 수 있다.
+- 하위 에이전트가 멈추면 메인은 이유를 모른다 — 메인의 다음 도구 호출이 막히면서 사유가 화면에 뜬다.
+- 도구 없이 모델만 부르는 호출은 훅이 안 불려 못 막는다.
+- 긴 컨텍스트 요율(가격표 2단계)은 미적용 — 합계가 낮게 나오는 쪽.
+- 구독(Pro/Max) 로그인은 달러가 청구되지 않는다 — 달러 상한은 API 키 사용자에게 의미가 있다.
+
+### 공개 수치 — ✅ 안 움직인다
+
+분석 경로(`analyze` · 탐지기 · 리포트) 변경 0줄. 0.5.17 이후 `src/` 변경은 `guard.py` 추가와 CLI 연결뿐.
+
 ## 0.5.17 — 2026-10-17 · **접두어는 모델이 아니다 — 모르는 모델은 보이게 된다**
 
 가격표는 모델 이름을 **접두어**로 찾았다. 그래서 표에 없는 이름이 더 짧은 이름의
