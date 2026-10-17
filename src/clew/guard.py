@@ -136,13 +136,19 @@ def session_cost(transcript_path: str | Path) -> dict:
     return {"usd": usd, "calls": calls, "unpriced_models": sorted(unmatched)}
 
 
+def _money(usd: float) -> str:
+    # Cents hide the difference under a dollar: an interactive run with a
+    # $0.012 cap showed "spent $0.01 >= cap $0.01" (2026-10-17).
+    return f"${usd:.2f}" if usd >= 1 else f"${usd:.4f}"
+
+
 def decide(cost: dict, cap_usd: float, warn_at: float | None) -> tuple[str, dict | None]:
     """("deny" | "warn" | "allow", hook output or None)."""
     usd = cost["usd"]
     floor = " (lower bound: unpriced model " + ", ".join(cost["unpriced_models"]) + ")" \
         if cost["unpriced_models"] else ""
     if usd >= cap_usd:
-        reason = f"Boxdawn budget guard: session spent ${usd:.2f}{floor} >= cap ${cap_usd:.2f}"
+        reason = f"Boxdawn budget guard: session spent {_money(usd)}{floor} >= cap {_money(cap_usd)}"
         return "deny", {
             "continue": False,
             "stopReason": reason,
@@ -155,8 +161,8 @@ def decide(cost: dict, cap_usd: float, warn_at: float | None) -> tuple[str, dict
     if warn_at is not None and usd >= cap_usd * warn_at:
         return "warn", {
             "systemMessage": (
-                f"Boxdawn budget guard: session spent ${usd:.2f}{floor}, "
-                f"{usd / cap_usd:.0%} of the ${cap_usd:.2f} cap"
+                f"Boxdawn budget guard: session spent {_money(usd)}{floor}, "
+                f"{usd / cap_usd:.0%} of the {_money(cap_usd)} cap"
             ),
         }
     return "allow", None
