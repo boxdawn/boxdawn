@@ -55,7 +55,9 @@ def test_alias_normalization_anthropic():
 def test_alias_normalization_openai():
     """gpt-4o-mini variants MUST match before gpt-4o."""
     # Prefix ambiguity gate — this is the whole point of longest-prefix routing.
-    assert get_pricing("gpt-4o-2024-05-13") is PRICING["gpt-4o"]
+    # The 2024-05-13 snapshot is priced apart from the family ($5/$15 on the
+    # page, 2026-10-16) — Pricing Coverage Stage 1 prereg §4.
+    assert get_pricing("gpt-4o-2024-05-13") is PRICING["gpt-4o-2024-05-13"]
     assert get_pricing("gpt-4o-mini-2024-07-18") is PRICING["gpt-4o-mini"]
     assert get_pricing("gpt-4o-mini") is PRICING["gpt-4o-mini"]
 
@@ -63,7 +65,11 @@ def test_alias_normalization_openai():
 def test_alias_normalization_gemini():
     """gemini-1.5-{pro|flash}-<suffix> all route to the base key."""
     assert get_pricing("gemini-1.5-pro-latest") is PRICING["gemini-1.5-pro"]
-    assert get_pricing("gemini-1.5-flash-8b") is PRICING["gemini-1.5-flash"]
+    # `-8b` is a different, separately priced model, not a version suffix
+    # (Pricing Coverage Stage 1 prereg §1.2, §4).
+    from clew.cost.pricing import resolve_pricing
+    _pricing, matched = resolve_pricing("gemini-1.5-flash-8b")
+    assert matched is False
 
 
 def test_unknown_model_defaults_with_warning():
@@ -468,7 +474,7 @@ def test_the_bare_opus_4_alias_no_longer_borrows_another_opus_rate():
     # Vendor page fetched 2026-10-05.
     ("claude-opus-5-5", 4.0, 0.20, 20.0),
     ("claude-opus-5.5", 4.0, 0.20, 20.0),
-    ("claude-sonnet-5-5", 2.0, 0.20, 10.0),
+    ("claude-sonnet-5-5", 2.0, 0.10, 10.0),  # 0.05x base · re-verified 2026-10-16
     ("claude-fable-5-1", 10.0, 0.25, 50.0),
     ("claude-mythos-5-1", 10.0, 0.25, 50.0),
 ])
@@ -524,3 +530,119 @@ def test_every_point_release_alias_precedes_its_shorter_prefix():
             f"{longer!r} must precede {shorter!r}: startswith takes the first "
             f"match, so the shorter prefix would shadow it"
         )
+
+
+# ── Pricing Coverage Stage 1 (docs/PRICING_COVERAGE_STAGE1_PREREG.md §4) ───
+
+
+@pytest.mark.parametrize("key, base, cache_read, w5m, w1h, output", [
+    # §2.1 Anthropic
+    ("haiku-5.5", 0.10, 0.01, 0.125, 0.20, 0.50),
+    ("sonnet-5.5", 2.0, 0.10, 2.50, 4.0, 10.0),
+    # §2.2 OpenAI — cache write `-` on the page, so both write columns = base
+    ("gpt-5", 1.25, 0.125, 1.25, 1.25, 10.0),
+    ("gpt-5-mini", 0.25, 0.025, 0.25, 0.25, 2.0),
+    ("o3", 2.0, 0.50, 2.0, 2.0, 8.0),
+    ("o4-mini", 1.10, 0.275, 1.10, 1.10, 4.40),
+    ("gpt-5-nano", 0.05, 0.005, 0.05, 0.05, 0.40),
+    ("gpt-5-pro", 15.0, 15.0, 15.0, 15.0, 120.0),
+    ("gpt-5.2-pro", 21.0, 21.0, 21.0, 21.0, 168.0),
+    ("gpt-5.4-mini", 0.75, 0.075, 0.75, 0.75, 4.50),
+    ("gpt-5.4-nano", 0.20, 0.02, 0.20, 0.20, 1.25),
+    ("gpt-4.1", 2.0, 0.50, 2.0, 2.0, 8.0),
+    ("gpt-4.1-mini", 0.40, 0.10, 0.40, 0.40, 1.60),
+    ("gpt-4.1-nano", 0.10, 0.025, 0.10, 0.10, 0.40),
+    ("gpt-4o-2024-05-13", 5.0, 5.0, 5.0, 5.0, 15.0),
+    ("o1", 15.0, 7.50, 15.0, 15.0, 60.0),
+    ("o1-pro", 150.0, 150.0, 150.0, 150.0, 600.0),
+    ("o3-pro", 20.0, 20.0, 20.0, 20.0, 80.0),
+    ("o3-mini", 1.10, 0.55, 1.10, 1.10, 4.40),
+    # §2.3–§2.5
+    ("gemini-3-flash-preview", 0.50, 0.05, 0.50, 0.50, 3.00),
+    ("kimi-k2.6", 0.95, 0.16, 0.95, 0.95, 4.00),
+    ("qwen-3.6-plus", 0.50, 0.50, 0.50, 0.50, 3.00),
+])
+def test_stage1_rates(key, base, cache_read, w5m, w1h, output):
+    p = PRICING[key]
+    assert (
+        p.base_input_per_mtok, p.cache_read_per_mtok,
+        p.cache_write_5m_per_mtok, p.cache_write_1h_per_mtok, p.output_per_mtok,
+    ) == (base, cache_read, w5m, w1h, output)
+
+
+@pytest.mark.parametrize("model, key", [
+    ("claude-haiku-5-5", "haiku-5.5"),
+    ("claude-haiku-5.5", "haiku-5.5"),
+    ("claude-sonnet-4-20250514", "sonnet-4.5"),
+    ("claude-3-5-haiku-20241022", "haiku-3.5"),
+    ("qwen3.6-plus", "qwen-3.6-plus"),
+])
+def test_stage1_aliases(model, key):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert get_pricing(model) is PRICING[key]
+
+
+@pytest.mark.parametrize("model, key", [
+    # §1.1: only the text after the last `/`, then the Bedrock profile prefix.
+    ("bedrock/us.anthropic.claude-opus-4-6-v1", "opus-4.7"),
+    ("anthropic/claude-sonnet-4-6", "sonnet-4.6"),
+    ("openrouter/moonshotai/kimi-k2.6", "kimi-k2.6"),
+    ("moonshotai/Kimi-K2.6", "kimi-k2.6"),
+    ("dashscope/qwen3.6-plus", "qwen-3.6-plus"),
+    ("eu.anthropic.claude-haiku-4-5-20251001-v1:0", "haiku-4.5"),
+    ("global.anthropic.claude-opus-4-5-20251101-v1:0", "opus-4.7"),
+    ("anthropic.claude-sonnet-4-5-20250929-v1:0", "sonnet-4.5"),
+])
+def test_stage1_provider_prefix_normalisation(model, key):
+    from clew.cost.pricing import resolve_pricing
+
+    pricing, matched = resolve_pricing(model)
+    assert matched is True
+    assert pricing is PRICING[key]
+
+
+@pytest.mark.parametrize("model, key", [
+    # §1.2: each accepted suffix shape.
+    ("claude-haiku-4-5-20251001", "haiku-4.5"),
+    ("gpt-5.2-2025-12-11", "gpt-5.2"),
+    ("claude-opus-4-6-v1:0", "opus-4.7"),
+    ("gpt-5-mini_2", "gpt-5-mini"),
+    ("claude-opus-4-5@anthropic", "opus-4.7"),
+    ("claude-3-5-sonnet-latest", "sonnet-4.5"),
+    ("gemini-2.5-flash-002", "gemini-2.5-flash"),
+])
+def test_stage1_version_suffixes_still_match(model, key):
+    from clew.cost.pricing import resolve_pricing
+
+    pricing, matched = resolve_pricing(model)
+    assert matched is True
+    assert pricing is PRICING[key]
+
+
+@pytest.mark.parametrize("model, not_key", [
+    # §1.2: a prefix is not the model when the remainder is not a version.
+    ("gpt-5-nano", "gpt-5"),
+    ("o3-pro", "o3"),
+    ("gpt-5.2-pro", "gpt-5.2"),
+    ("o3-mini", "o3"),
+])
+def test_stage1_prefix_does_not_capture_a_sibling(model, not_key):
+    """The silent case: these matched before, with `matched=True` and the
+    wrong rate. Each now answers with its own entry."""
+    from clew.cost.pricing import resolve_pricing
+
+    pricing, matched = resolve_pricing(model)
+    assert matched is True
+    assert pricing is not PRICING[not_key]
+
+
+@pytest.mark.parametrize("model", ["gpt-5.6-sol", "claude-opus-5-9", "gpt-5.4"])
+def test_stage1_unknown_extension_is_unmatched(model):
+    """A future `gpt-5.N` / `claude-opus-5-N` is a visible unknown, not the
+    older model's rate."""
+    from clew.cost.pricing import DEFAULT_MODEL_KEY, resolve_pricing
+
+    pricing, matched = resolve_pricing(model)
+    assert matched is False
+    assert pricing is PRICING[DEFAULT_MODEL_KEY]

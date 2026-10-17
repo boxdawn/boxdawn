@@ -17,6 +17,7 @@ best-effort pricing so cost figures degrade gracefully.
 """
 from __future__ import annotations
 
+import re
 import warnings
 from dataclasses import dataclass
 
@@ -184,9 +185,13 @@ PRICING: dict[str, ModelPricing] = {
         # Opus 4.8 alias note below describes. The entry exists so that if the
         # two ever diverge, this line is what changes rather than a prefix
         # quietly staying plausible.
+        # Re-verified 2026-10-16 (Pricing Coverage Stage 1 prereg §2.1): the
+        # page's footnote prices Sonnet 5.5 cache hits at 0.05x base, like
+        # Opus 5.5 -- 0.10, not the 0.20 Sonnet 5 charges. So the two had
+        # already diverged, on the one column the 2026-10-05 entry copied.
         name="claude-sonnet-5-5",
         base_input_per_mtok=2.0,
-        cache_read_per_mtok=0.20,
+        cache_read_per_mtok=0.10,
         cache_write_5m_per_mtok=2.50,
         cache_write_1h_per_mtok=4.0,
         output_per_mtok=10.0,
@@ -304,6 +309,19 @@ PRICING: dict[str, ModelPricing] = {
         cache_write_1h_per_mtok=2.0,
         output_per_mtok=5.0,
     ),
+    "haiku-5.5": ModelPricing(
+        # Source: https://platform.claude.com/docs/en/about-claude/pricing
+        # Verified: 2026-10-16 · Pricing Coverage Stage 1 prereg §2.1
+        # Prompts <=100k only; the page prices longer prompts higher and this
+        # table holds one rate set per model (stage 2). Before this entry the
+        # string fell to the Sonnet 4.5 default: 30x over on input.
+        name="claude-haiku-5-5",
+        base_input_per_mtok=0.10,
+        cache_read_per_mtok=0.01,
+        cache_write_5m_per_mtok=0.125,
+        cache_write_1h_per_mtok=0.20,
+        output_per_mtok=0.50,
+    ),
     # ── OpenAI ────────────────────────────────────────────────────────────
     # Source: https://openai.com/api/pricing/ (verified via 2026-08 secondary
     # sources; direct fetch returned 403). OpenAI cached input is 50% off base.
@@ -355,10 +373,15 @@ PRICING: dict[str, ModelPricing] = {
     # Source: https://openai.com/api/pricing/ (per 2026-08 aggregate published
     # rate; direct provider fetch returned 403 as with GPT-4o).
     # Verified: 2026-08-11 · Cost Table Toolathlon Expansion prereg §2.4
+    # Cache reads re-verified 2026-10-16 against
+    # https://developers.openai.com/api/docs/pricing (Pricing Coverage Stage 1
+    # prereg §2.2): gpt-5, gpt-5-mini, o3 and o4-mini had carried the 50%-off
+    # rule written for GPT-4o; the page lists 90% off for the GPT-5 family and
+    # 75% off for o3 / o4-mini.
     "gpt-5": ModelPricing(
         name="gpt-5",
         base_input_per_mtok=1.25,
-        cache_read_per_mtok=0.625,
+        cache_read_per_mtok=0.125,
         cache_write_5m_per_mtok=1.25,
         cache_write_1h_per_mtok=1.25,
         output_per_mtok=10.0,
@@ -368,7 +391,7 @@ PRICING: dict[str, ModelPricing] = {
         # Verified: 2026-08-11
         name="gpt-5-mini",
         base_input_per_mtok=0.25,
-        cache_read_per_mtok=0.125,
+        cache_read_per_mtok=0.025,
         cache_write_5m_per_mtok=0.25,
         cache_write_1h_per_mtok=0.25,
         output_per_mtok=2.0,
@@ -396,7 +419,7 @@ PRICING: dict[str, ModelPricing] = {
     "o3": ModelPricing(
         name="o3",
         base_input_per_mtok=2.0,
-        cache_read_per_mtok=1.0,
+        cache_read_per_mtok=0.50,
         cache_write_5m_per_mtok=2.0,
         cache_write_1h_per_mtok=2.0,
         output_per_mtok=8.0,
@@ -406,7 +429,7 @@ PRICING: dict[str, ModelPricing] = {
         # Verified: 2026-08-11
         name="o4-mini",
         base_input_per_mtok=1.10,
-        cache_read_per_mtok=0.55,
+        cache_read_per_mtok=0.275,
         cache_write_5m_per_mtok=1.10,
         cache_write_1h_per_mtok=1.10,
         output_per_mtok=4.40,
@@ -546,6 +569,172 @@ PRICING: dict[str, ModelPricing] = {
         cache_write_1h_per_mtok=0.22,
         output_per_mtok=1.00,
     ),
+    # ── Pricing Coverage Stage 1 (docs/PRICING_COVERAGE_STAGE1_PREREG.md §2) ──
+    # OpenAI · Source: https://developers.openai.com/api/docs/pricing
+    # Verified: 2026-10-16 · Standard tier. Cache write is `-` on the page for
+    # every row below, so both write columns equal base; a row with no cached
+    # rate published carries base in cache_read too.
+    "gpt-5-nano": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="gpt-5-nano",
+        base_input_per_mtok=0.05,
+        cache_read_per_mtok=0.005,
+        cache_write_5m_per_mtok=0.05,
+        cache_write_1h_per_mtok=0.05,
+        output_per_mtok=0.40,
+    ),
+    "gpt-5-pro": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="gpt-5-pro",
+        base_input_per_mtok=15.0,
+        cache_read_per_mtok=15.0,
+        cache_write_5m_per_mtok=15.0,
+        cache_write_1h_per_mtok=15.0,
+        output_per_mtok=120.0,
+    ),
+    "gpt-5.2-pro": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="gpt-5.2-pro",
+        base_input_per_mtok=21.0,
+        cache_read_per_mtok=21.0,
+        cache_write_5m_per_mtok=21.0,
+        cache_write_1h_per_mtok=21.0,
+        output_per_mtok=168.0,
+    ),
+    "gpt-5.4-mini": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="gpt-5.4-mini",
+        base_input_per_mtok=0.75,
+        cache_read_per_mtok=0.075,
+        cache_write_5m_per_mtok=0.75,
+        cache_write_1h_per_mtok=0.75,
+        output_per_mtok=4.50,
+    ),
+    "gpt-5.4-nano": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="gpt-5.4-nano",
+        base_input_per_mtok=0.20,
+        cache_read_per_mtok=0.02,
+        cache_write_5m_per_mtok=0.20,
+        cache_write_1h_per_mtok=0.20,
+        output_per_mtok=1.25,
+    ),
+    "gpt-4.1": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="gpt-4.1",
+        base_input_per_mtok=2.0,
+        cache_read_per_mtok=0.50,
+        cache_write_5m_per_mtok=2.0,
+        cache_write_1h_per_mtok=2.0,
+        output_per_mtok=8.0,
+    ),
+    "gpt-4.1-mini": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="gpt-4.1-mini",
+        base_input_per_mtok=0.40,
+        cache_read_per_mtok=0.10,
+        cache_write_5m_per_mtok=0.40,
+        cache_write_1h_per_mtok=0.40,
+        output_per_mtok=1.60,
+    ),
+    "gpt-4.1-nano": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="gpt-4.1-nano",
+        base_input_per_mtok=0.10,
+        cache_read_per_mtok=0.025,
+        cache_write_5m_per_mtok=0.10,
+        cache_write_1h_per_mtok=0.10,
+        output_per_mtok=0.40,
+    ),
+    "gpt-4o-2024-05-13": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="gpt-4o-2024-05-13",
+        base_input_per_mtok=5.0,
+        cache_read_per_mtok=5.0,
+        cache_write_5m_per_mtok=5.0,
+        cache_write_1h_per_mtok=5.0,
+        output_per_mtok=15.0,
+    ),
+    "o1": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="o1",
+        base_input_per_mtok=15.0,
+        cache_read_per_mtok=7.50,
+        cache_write_5m_per_mtok=15.0,
+        cache_write_1h_per_mtok=15.0,
+        output_per_mtok=60.0,
+    ),
+    "o1-pro": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="o1-pro",
+        base_input_per_mtok=150.0,
+        cache_read_per_mtok=150.0,
+        cache_write_5m_per_mtok=150.0,
+        cache_write_1h_per_mtok=150.0,
+        output_per_mtok=600.0,
+    ),
+    "o3-pro": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="o3-pro",
+        base_input_per_mtok=20.0,
+        cache_read_per_mtok=20.0,
+        cache_write_5m_per_mtok=20.0,
+        cache_write_1h_per_mtok=20.0,
+        output_per_mtok=80.0,
+    ),
+    "o3-mini": ModelPricing(
+        # Source: https://developers.openai.com/api/docs/pricing
+        # Verified: 2026-10-16
+        name="o3-mini",
+        base_input_per_mtok=1.10,
+        cache_read_per_mtok=0.55,
+        cache_write_5m_per_mtok=1.10,
+        cache_write_1h_per_mtok=1.10,
+        output_per_mtok=4.40,
+    ),
+    # Google · Source: https://ai.google.dev/gemini-api/docs/pricing
+    # Verified: 2026-10-16 · text/image/video input rate.
+    "gemini-3-flash-preview": ModelPricing(
+        name="gemini-3-flash-preview",
+        base_input_per_mtok=0.50,
+        cache_read_per_mtok=0.05,
+        cache_write_5m_per_mtok=0.50,
+        cache_write_1h_per_mtok=0.50,
+        output_per_mtok=3.00,
+    ),
+    # Moonshot · Source: https://platform.moonshot.ai/docs/pricing/chat
+    # Verified: 2026-10-16 · the K2-series table publishes no cache-write price.
+    "kimi-k2.6": ModelPricing(
+        name="kimi-k2.6",
+        base_input_per_mtok=0.95,
+        cache_read_per_mtok=0.16,
+        cache_write_5m_per_mtok=0.95,
+        cache_write_1h_per_mtok=0.95,
+        output_per_mtok=4.00,
+    ),
+    # Alibaba · Source: https://www.alibabacloud.com/help/en/model-studio/model-pricing
+    # Verified: 2026-10-16 · International, 0 < tokens <= 256K only (stage 2
+    # for the longer tier). No cache tier published.
+    "qwen-3.6-plus": ModelPricing(
+        name="qwen-3.6-plus",
+        base_input_per_mtok=0.50,
+        cache_read_per_mtok=0.50,
+        cache_write_5m_per_mtok=0.50,
+        cache_write_1h_per_mtok=0.50,
+        output_per_mtok=3.00,
+    ),
 }
 
 
@@ -557,7 +746,13 @@ DEFAULT_MODEL_KEY = "sonnet-4.5"
 _ALIASES: tuple[tuple[str, str], ...] = (
     # OpenAI: gpt-4o-mini variants MUST match before gpt-4o (longest prefix)
     ("gpt-4o-mini", "gpt-4o-mini"),
+    # A dated snapshot priced apart from the family: under the alias boundary
+    # its date is a version suffix of `gpt-4o`, so only order keeps it out.
+    ("gpt-4o-2024-05-13", "gpt-4o-2024-05-13"),
     ("gpt-4o", "gpt-4o"),
+    ("gpt-4.1-mini", "gpt-4.1-mini"),
+    ("gpt-4.1-nano", "gpt-4.1-nano"),
+    ("gpt-4.1", "gpt-4.1"),
     # Anthropic
     ("claude-sonnet-4-5", "sonnet-4.5"),
     ("claude-sonnet-4.5", "sonnet-4.5"),
@@ -565,6 +760,8 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("claude-3.5-sonnet", "sonnet-4.5"),
     ("claude-sonnet-4-6", "sonnet-4.6"),
     ("claude-sonnet-4.6", "sonnet-4.6"),
+    # Sonnet 4 is priced as Sonnet 4.5; below both 4-5 and 4-6 on purpose.
+    ("claude-sonnet-4", "sonnet-4.5"),
     # 🔴 Point releases sit ABOVE the release they extend. `resolve_pricing`
     # takes the FIRST matching prefix, not the longest, so order is the
     # correctness property here: with `claude-opus-5` first, every
@@ -605,6 +802,9 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("claude-haiku-4-5", "haiku-4.5"),
     ("claude-haiku-3-5", "haiku-3.5"),
     ("claude-haiku-3.5", "haiku-3.5"),
+    ("claude-3-5-haiku", "haiku-3.5"),   # date-first legacy naming
+    ("claude-haiku-5-5", "haiku-5.5"),
+    ("claude-haiku-5.5", "haiku-5.5"),
     ("claude-mythos-5-1", "mythos-5.1"),
     ("claude-mythos-5.1", "mythos-5.1"),
     ("claude-mythos-5", "mythos-5"),
@@ -621,13 +821,22 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     # Cost Table Exgentic Expansion prereg §1.4: gpt-5.2 must precede
     # gpt-5.1 / gpt-5-mini / gpt-5-high / gpt-5 so the Exgentic canonical
     # `gpt-5.2-2025-12-11` resolves via startswith on `gpt-5.2`.
+    ("gpt-5.2-pro", "gpt-5.2-pro"),
     ("gpt-5.2", "gpt-5.2"),
     ("gpt-5.1", "gpt-5"),        # minor variant, same base rate
+    ("gpt-5.4-mini", "gpt-5.4-mini"),
+    ("gpt-5.4-nano", "gpt-5.4-nano"),
     ("gpt-5-mini", "gpt-5-mini"),
+    ("gpt-5-nano", "gpt-5-nano"),
+    ("gpt-5-pro", "gpt-5-pro"),
     ("gpt-5-high", "gpt-5"),      # high-throughput variant, same base rate
     ("gpt-5", "gpt-5"),
     ("o4-mini", "o4-mini"),
+    ("o3-mini", "o3-mini"),
+    ("o3-pro", "o3-pro"),
     ("o3", "o3"),
+    ("o1-pro", "o1-pro"),
+    ("o1", "o1"),
     # Anthropic 4.x historical model IDs Toolathlon uses
     ("claude-4.5-sonnet-0929", "sonnet-4.5"),
     ("claude-4.5-opus", "opus-4.7"),  # nearest known Opus rate
@@ -635,6 +844,7 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("claude-4-sonnet-0514", "sonnet-4.5"),  # Sonnet 4.0 (2024-05); same $3/$15 tier
     # Google Gemini 2.5 / 3.x
     ("gemini-3-pro-preview", "gemini-3-pro-preview"),
+    ("gemini-3-flash-preview", "gemini-3-flash-preview"),
     ("gemini-2.5-pro", "gemini-2.5-pro"),
     ("gemini-2.5-flash", "gemini-2.5-flash"),
     # xAI Grok (longest first)
@@ -649,10 +859,25 @@ _ALIASES: tuple[tuple[str, str], ...] = (
     ("glm-4.6", "glm-4.6"),
     # Cost Table Exgentic Expansion prereg §1.4: kimi-k2.5 must precede
     # kimi-k2-0905 (Moonshot K2.5 is a distinct rate tier from K2-0905).
+    ("kimi-k2.6", "kimi-k2.6"),
     ("kimi-k2.5", "kimi-k2.5"),
     ("kimi-k2-0905", "kimi-k2-0905"),
     ("minimax-m2", "minimax-m2"),
     ("qwen-3-coder", "qwen-3-coder"),
+    ("qwen-3.6-plus", "qwen-3.6-plus"),
+    ("qwen3.6-plus", "qwen-3.6-plus"),
+)
+
+# Pricing Coverage Stage 1 prereg §1.1: Bedrock inference-profile prefix
+# (`us.anthropic.`, `global.anthropic.`, bare `anthropic.`).
+_BEDROCK_PROFILE = re.compile(r"^(?:[a-z]{2,6}\.)?anthropic\.")
+
+# Prereg §1.2: what may follow an alias prefix and still be that model --
+# dates, MMDD, Google `-001`, Bedrock `-v1:0`, `-latest`, the Toolathlon run
+# index `_1`, an `@provider` routing tag. Anything else (`-nano`, `-pro`,
+# `.4`, `-8b`) is a different model.
+_VERSION_SUFFIXES = re.compile(
+    r"(?:-\d{8}|-\d{4}-\d{2}-\d{2}|-\d{4}|-\d{3}|-v\d+(?::\d+)?|-latest|_\d+|@[\w.-]+)*"
 )
 
 
@@ -731,14 +956,22 @@ def resolve_pricing(model_key: str | None) -> tuple[ModelPricing, bool]:
         return PRICING[DEFAULT_MODEL_KEY], False
 
     normalized = model_key.strip().lower()
+    # Provider routing (`bedrock/`, `openrouter/<vendor>/`, `dashscope/`) and a
+    # Bedrock profile prefix name where the call went, not what it cost.
+    normalized = normalized.rsplit("/", 1)[-1]
+    normalized = _BEDROCK_PROFILE.sub("", normalized)
 
     if normalized in PRICING:
         return PRICING[normalized], True
 
-    # Longest-prefix alias resolution: ordered tuple ensures gpt-4o-mini
-    # matches before gpt-4o.
+    # First alias whose remainder is only version suffixes. A bare
+    # `startswith` let `gpt-5` answer for `gpt-5-nano` (25x over) and `o3`
+    # for `o3-pro` (10x under) with `matched=True` and no warning; now a name
+    # the table does not know comes back unmatched, which is visible.
     for prefix, target_key in _ALIASES:
-        if normalized.startswith(prefix):
+        if normalized.startswith(prefix) and _VERSION_SUFFIXES.fullmatch(
+            normalized[len(prefix):]
+        ):
             return PRICING[target_key], True
 
     return PRICING[DEFAULT_MODEL_KEY], False
