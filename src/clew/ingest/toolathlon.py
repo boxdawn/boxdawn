@@ -226,6 +226,10 @@ def _reconstruct_llm_calls(
             "output_cost_rate": output_cost_rate,
             "cost_rate_legacy": None,
             "model": modelname_run,
+            # The input above is apportioned from the trajectory total, so no
+            # request had this length; it must not select a long-context rate
+            # (Pricing Coverage Stage 2 prereg §7.2).
+            "prompt_tokens_apportioned": True,
             "start_time": _synth_ts(msg_idx, 0).isoformat(),
         })
     return llm_calls

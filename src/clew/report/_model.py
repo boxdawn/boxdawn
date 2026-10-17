@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from clew.cost.pricing import resolve_pricing, tier_input_cost
+from clew.cost.pricing import long_context_override, resolve_pricing, tier_input_cost
 from clew.model import Span, Trace
 
 if TYPE_CHECKING:
@@ -93,8 +93,26 @@ def _llm_call_input_cost(call: dict[str, Any]) -> tuple[float, bool, str | None]
     cache_read = call.get("input_tokens_cache_read")
     cache_write = call.get("input_tokens_cache_write")
     model = call.get("model")
+    has_split = uncached is not None or cache_read is not None or cache_write is not None
 
-    if uncached is not None or cache_read is not None or cache_write is not None:
+    # A prompt over its model's long-context threshold pays the long rates,
+    # replacing the short-rate entry and any rate copied from it into the call
+    # (Pricing Coverage Stage 2 prereg §7.2). None leaves every path below as is.
+    long_rate = long_context_override(call)
+    if long_rate is not None:
+        if has_split:
+            return tier_input_cost(
+                long_rate,
+                uncached=int(uncached or 0),
+                cache_read=int(cache_read or 0),
+                cache_write_total=int(cache_write or 0),
+                cache_write_1h=int(call.get("input_tokens_cache_write_1h") or 0),
+            ), True, None
+        input_tokens = int(call.get("input_tokens") or 0)
+        return (input_tokens * long_rate.base_input_per_mtok / 1_000_000.0,
+                call.get("input_cost_rate") is not None, None)
+
+    if has_split:
         pricing, matched = resolve_pricing(model)
         u = int(uncached or 0)
         r = int(cache_read or 0)
@@ -136,6 +154,9 @@ def _llm_call_input_cost(call: dict[str, Any]) -> tuple[float, bool, str | None]
 def _llm_call_output_cost(call: dict[str, Any]) -> tuple[float, str | None]:
     """Return output-side cost for this call in USD (uses pricing.py by model)."""
     output_tokens = int(call.get("output_tokens") or 0)
+    long_rate = long_context_override(call)
+    if long_rate is not None:
+        return output_tokens * long_rate.output_per_mtok / 1_000_000.0, None
     output_cost_rate = call.get("output_cost_rate")
     if output_cost_rate is not None:
         return output_tokens * float(output_cost_rate), None

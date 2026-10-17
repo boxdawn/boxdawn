@@ -24,8 +24,8 @@ field_test/diagnostics/_budget_guard_design_DRAFT.md §2):
 Pricing is `clew.cost.pricing`, the same table the reports use. A model the
 table does not know is priced at the default and still counted: leaving it out
 would let that session run with no cap at all. The default is the cheaper
-side, so such a total is reported as a lower bound. Long-context rate tiers
-are not applied (pricing stage 2), which also errs low.
+side, so such a total is reported as a lower bound. A long prompt pays its
+model's long-context rate where the table carries one (pricing stage 2).
 
 Nothing leaves the machine. Blocks and warnings are appended to
 `~/.clew/guard_events.jsonl`.
@@ -37,7 +37,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from clew.cost.pricing import resolve_pricing, tier_input_cost
+from clew.cost.pricing import pricing_for_prompt, resolve_pricing, tier_input_cost
 
 EVENTS_PATH = Path.home() / ".clew" / "guard_events.jsonl"
 # Per-user and gitignored by Claude Code. The hook command names this
@@ -76,6 +76,7 @@ def _call_cost(msg: dict) -> tuple[float, str | None, bool] | None:
             write_1h = ttl_1h
     model = msg.get("model") if isinstance(msg.get("model"), str) else None
     pricing, matched = resolve_pricing(model)
+    pricing = pricing_for_prompt(pricing, uncached + cache_read + cache_write)
     usd = tier_input_cost(
         pricing,
         uncached=uncached,

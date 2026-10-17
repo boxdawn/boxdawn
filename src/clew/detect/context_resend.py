@@ -22,6 +22,7 @@ from typing import Any, Literal
 from clew.cost.pricing import (
     ModelPricing,
     get_pricing,
+    long_context_override,
     tier_input_cost,
     tier_input_ladder,
 )
@@ -205,7 +206,8 @@ def _ladder_for_call(call: dict[str, Any]) -> list[tuple[float, int]]:
 
     if has_tier_split(call):
         model = call.get("model")
-        pricing = get_pricing(model) if model else get_pricing(None)
+        pricing = long_context_override(call) or (
+            get_pricing(model) if model else get_pricing(None))
         ladder = tier_input_ladder(
             pricing,
             uncached=int(call.get("input_tokens_uncached") or 0),
@@ -277,10 +279,15 @@ def _rate_and_cost_for_call(
     cache_read = call.get("input_tokens_cache_read")
     cache_write = call.get("input_tokens_cache_write")
     model = call.get("model")
+    # Over its model's long-context threshold: the long rates, in place of the
+    # short-rate entry and of a rate copied from it into `input_cost_rate`
+    # (Pricing Coverage Stage 2 prereg §7.2). `cost_rate_legacy` keeps its
+    # contract. None leaves every branch as it was.
+    long_rate = long_context_override(call)
 
     # (1) tier-split path
     if has_tier_split(call):
-        pricing = get_pricing(model) if model else get_pricing(None)
+        pricing = long_rate or (get_pricing(model) if model else get_pricing(None))
         u = int(uncached or 0)
         r = int(cache_read or 0)
         w = int(cache_write or 0)
@@ -299,6 +306,9 @@ def _rate_and_cost_for_call(
     # (2) caller-supplied flat input rate
     input_cost_rate = call.get("input_cost_rate")
     if input_cost_rate is not None:
+        if long_rate is not None:
+            rate = long_rate.base_input_per_mtok / 1_000_000.0
+            return rate, input_tokens * rate, long_rate
         rate = float(input_cost_rate)
         return rate, input_tokens * rate, None
 
@@ -310,7 +320,7 @@ def _rate_and_cost_for_call(
 
     # (4) pricing.py default when nothing else specified
     if model:
-        pricing = get_pricing(model)
+        pricing = long_rate or get_pricing(model)
         rate = pricing.base_input_per_mtok / 1_000_000.0
         return rate, input_tokens * rate, pricing
 

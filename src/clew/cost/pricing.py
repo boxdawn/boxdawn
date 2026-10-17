@@ -32,6 +32,11 @@ class ModelPricing:
     cache_write_5m_per_mtok: float
     cache_write_1h_per_mtok: float
     output_per_mtok: float
+    # The rate set a provider charges when a request's prompt is longer than a
+    # threshold. None for a model priced the same at every length. Chosen per
+    # call by `pricing_for_prompt`; `resolve_pricing` keeps returning the short
+    # rate (Pricing Coverage Stage 2 prereg §1).
+    long_context: LongContextTier | None = None
 
     def base_input_cost(self, tokens: int) -> float:
         return tokens * self.base_input_per_mtok / _USD_PER_MTOK
@@ -47,6 +52,28 @@ class ModelPricing:
 
     def output_cost(self, tokens: int) -> float:
         return tokens * self.output_per_mtok / _USD_PER_MTOK
+
+
+@dataclass(frozen=True)
+class LongContextTier:
+    threshold_tokens: int
+    pricing: ModelPricing
+
+
+def pricing_for_prompt(pricing: ModelPricing, prompt_tokens: int) -> ModelPricing:
+    """The rate set one request pays, given its prompt length.
+
+    The whole request takes the long rate, output included, once the prompt is
+    strictly over the threshold. Prompt length counts every input token, cache
+    reads and writes included -- the Anthropic page's own definition, which the
+    callers follow by passing uncached + cache_read + cache_write when the call
+    reports the split. Below or at the threshold the same object comes back,
+    so a model without a tier is priced exactly as before.
+    """
+    tier = pricing.long_context
+    if tier is not None and prompt_tokens > tier.threshold_tokens:
+        return tier.pricing
+    return pricing
 
 
 def tier_input_ladder(
@@ -312,15 +339,26 @@ PRICING: dict[str, ModelPricing] = {
     "haiku-5.5": ModelPricing(
         # Source: https://platform.claude.com/docs/en/about-claude/pricing
         # Verified: 2026-10-16 · Pricing Coverage Stage 1 prereg §2.1
-        # Prompts <=100k only; the page prices longer prompts higher and this
-        # table holds one rate set per model (stage 2). Before this entry the
-        # string fell to the Sonnet 4.5 default: 30x over on input.
+        # Before this entry the string fell to the Sonnet 4.5 default: 30x
+        # over on input. Prompts over 100,000 tokens: `long_context` below.
         name="claude-haiku-5-5",
         base_input_per_mtok=0.10,
         cache_read_per_mtok=0.01,
         cache_write_5m_per_mtok=0.125,
         cache_write_1h_per_mtok=0.20,
         output_per_mtok=0.50,
+        # Source: https://platform.claude.com/docs/en/about-claude/pricing
+        # Verified: 2026-10-17 · "for prompts over 100,000 tokens", the whole
+        # request, cache reads and writes counted in the length (Pricing
+        # Coverage Stage 2 prereg §2).
+        long_context=LongContextTier(100_000, ModelPricing(
+            name="claude-haiku-5-5 (>100k)",
+            base_input_per_mtok=0.50,
+            cache_read_per_mtok=0.05,
+            cache_write_5m_per_mtok=0.625,
+            cache_write_1h_per_mtok=1.0,
+            output_per_mtok=2.50,
+        )),
     ),
     # ── OpenAI ────────────────────────────────────────────────────────────
     # Source: https://openai.com/api/pricing/ (verified via 2026-08 secondary
@@ -444,6 +482,17 @@ PRICING: dict[str, ModelPricing] = {
         cache_write_5m_per_mtok=1.25,
         cache_write_1h_per_mtok=1.25,
         output_per_mtok=10.0,
+        # Source: https://ai.google.dev/gemini-api/docs/pricing
+        # Verified: 2026-10-17 · Standard, "prompts > 200k tokens"; the short
+        # rates above re-read the same day and unchanged.
+        long_context=LongContextTier(200_000, ModelPricing(
+            name="gemini-2.5-pro (>200k)",
+            base_input_per_mtok=2.50,
+            cache_read_per_mtok=0.25,
+            cache_write_5m_per_mtok=2.50,
+            cache_write_1h_per_mtok=2.50,
+            output_per_mtok=15.0,
+        )),
     ),
     "gemini-2.5-flash": ModelPricing(
         # Source: https://ai.google.dev/pricing
@@ -725,8 +774,8 @@ PRICING: dict[str, ModelPricing] = {
         output_per_mtok=4.00,
     ),
     # Alibaba · Source: https://www.alibabacloud.com/help/en/model-studio/model-pricing
-    # Verified: 2026-10-16 · International, 0 < tokens <= 256K only (stage 2
-    # for the longer tier). No cache tier published.
+    # Verified: 2026-10-16 · International, 0 < tokens <= 256K. No cache tier
+    # published.
     "qwen-3.6-plus": ModelPricing(
         name="qwen-3.6-plus",
         base_input_per_mtok=0.50,
@@ -734,6 +783,17 @@ PRICING: dict[str, ModelPricing] = {
         cache_write_5m_per_mtok=0.50,
         cache_write_1h_per_mtok=0.50,
         output_per_mtok=3.00,
+        # Source: https://www.alibabacloud.com/help/en/model-studio/model-pricing
+        # Verified: 2026-10-17 · International, 256K < tokens <= 1M. "K" read
+        # as 1,000 (Pricing Coverage Stage 2 prereg §1).
+        long_context=LongContextTier(256_000, ModelPricing(
+            name="qwen-3.6-plus (>256K)",
+            base_input_per_mtok=2.00,
+            cache_read_per_mtok=2.00,
+            cache_write_5m_per_mtok=2.00,
+            cache_write_1h_per_mtok=2.00,
+            output_per_mtok=6.00,
+        )),
     ),
 }
 
@@ -975,3 +1035,33 @@ def resolve_pricing(model_key: str | None) -> tuple[ModelPricing, bool]:
             return PRICING[target_key], True
 
     return PRICING[DEFAULT_MODEL_KEY], False
+
+
+def call_prompt_tokens(call: dict) -> int:
+    """One adapter call's prompt length: the cache split when reported, else input_tokens."""
+    split = (call.get("input_tokens_uncached"), call.get("input_tokens_cache_read"),
+             call.get("input_tokens_cache_write"))
+    if any(v is not None for v in split):
+        return sum(int(v or 0) for v in split)
+    return int(call.get("input_tokens") or 0)
+
+
+def long_context_override(call: dict) -> ModelPricing | None:
+    """The long-rate entry this call pays, or None when nothing changes.
+
+    One rule for every adapter call site (Pricing Coverage Stage 2 prereg §7.2).
+    The entry it returns replaces both the short-rate entry and any rate an
+    adapter copied from it into `input_cost_rate` / `output_cost_rate` -- the
+    CLI copies the default tables into every call, so without the replacement
+    a long request would get its input at the long rate and its output at the
+    short one. A call whose length was apportioned rather than reported
+    (Toolathlon) never takes a tier: no request had that length.
+    """
+    if call.get("prompt_tokens_apportioned"):
+        return None
+    model = call.get("model")
+    if not isinstance(model, str) or not model:
+        return None
+    pricing, _matched = resolve_pricing(model)
+    chosen = pricing_for_prompt(pricing, call_prompt_tokens(call))
+    return chosen if chosen is not pricing else None
