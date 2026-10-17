@@ -2,6 +2,40 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.17 — 2026-10-17 · **접두어는 모델이 아니다 — 모르는 모델은 보이게 된다**
+
+가격표는 모델 이름을 **접두어**로 찾았다. 그래서 표에 없는 이름이 더 짧은 이름의
+가격을 조용히 받았다 — `o3-mini` 가 `o3` 로, `gpt-5-nano` 가 `gpt-5` 로. 접두어조차
+안 맞는 이름(`claude-haiku-5-5` · Bedrock 접두 문자열 등)은 기본값(Sonnet 4.5)을 받았다.
+둘 다 경고 없이.
+
+### 수정 — 경계에서 끊고, 모르는 건 모른다고 한다 (`#280`)
+
+접두어 뒤에 버전 접미어(날짜·`-latest` 등)만 붙은 경우만 같은 모델로 본다. 그 밖의
+연장(`gpt-5.4`, `gpt-5.6-*`, 표에 없는 `claude-*-N-M`)은 **unmatched** — 경고를 내고
+`unpriced_models` 에 올라간다. Bedrock·`provider/` 접두는 벗기고 찾는다. 사전등록
+`docs/PRICING_COVERAGE_STAGE1_PREREG.md` · 결과 `docs/PRICING_COVERAGE_STAGE1_RESULTS.md`
+(예측 P1–P5 전부 적중).
+
+### 공개 수치 — ✅ **안 움직인다**
+
+Corpus A `total_usd 397.53358534999995` · Corpus B `grand_usd 8082.0503719199905`
+(22계열) 전·후 **비트 동일**. Corpus C 5개 모델 가격 동일. README 수치 변경 없음.
+
+### 사용자 리포트 — 🔴 트레이스에 아래 이름이 있으면 가격이 바뀐다
+
+- `claude-haiku-5-5` / `claude-haiku-5.5` — Sonnet 4.5 기본값 → Haiku 5.5 (≤100k 요율)
+- `claude-sonnet-5-5` — 캐시 읽기 0.20 → 0.10
+- `gpt-5`, `gpt-5-mini`, `gpt-5.1`, `gpt-5-high`, `o3`, `o4-mini` — 캐시 읽기 정정(기본·출력 불변)
+- `gpt-5-nano`, `gpt-5-pro`, `gpt-5.2-pro`, `o3-mini`, `o3-pro`, `gpt-4o-2024-05-13` —
+  짧은 접두어에 잡혀 있었음 → 자기 행
+- `gpt-4.1*`, `gpt-5.4-mini`, `gpt-5.4-nano`, `o1`, `o1-pro`, `gemini-3-flash-preview`,
+  `kimi-k2.6`, `qwen3.6-plus`, Bedrock / `provider/` 접두 Claude 문자열 — 기본값 → 가격 있음
+- 표에 없는 알려진 이름의 연장(예: `gpt-5.4`, `gpt-5.6-*`) — 짧은 이름 가격 → **unmatched**
+  (경고 + `unpriced_models`). 달러는 Sonnet 4.5 기본 요율로 매겨진다(`matched=False`).
+
+🔴 **안 고친 것**: 길이 구간 요율(>200k 등)은 2단계 — 별도 사전등록.
+
 ## 0.5.16 — 2026-10-15 · **압축된 대화를 압축 전 대화로 읽지 않는다**
 
 Claude Code 는 대화가 길어지면 앞부분을 요약본으로 바꿔 보낸다(auto-compaction).
