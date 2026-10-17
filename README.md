@@ -302,7 +302,7 @@ Scope, checked rather than assumed:
 - The cited trace behind the home page's 88.7% has no compaction, and its published figures are identical on 0.5.16.
 - Corpus D (MIMO, 1,017 sessions) has no compaction entry and does not move.
 - Corpus B and C use other adapters, which the compaction fix does not touch. **They have not been re-measured against the later pricing fixes**, so their `WR_cost` figures stand as published until they are.
-- Still open: in 1,557 trace-commons calls the reconstructed input measures more tokens than were billed. The causes are images (the tokenizer counts base64 by length) and one cause not yet identified. This release does not fix it.
+- Still open: in 1,557 trace-commons calls the reconstructed input measures more tokens than were billed. The causes, identified on 2026-10-17, are images (710 calls) and thinking-block signatures (839). Both are base64 that the tokenizer counts by length. The other 8 are `<synthetic>` entries with no usage ([`CC_INPUT_OVERFLOW_CAUSES_RESULTS`](https://github.com/boxdawn/boxdawn/blob/main/docs/CC_INPUT_OVERFLOW_CAUSES_RESULTS.md)). Their effect on the figures above has not been measured, and no release fixes it yet.
 
 Details are in [`docs/CONTEXT_RESEND_DECOMPOSITION_RESULTS.md`](https://github.com/boxdawn/boxdawn/blob/main/docs/CONTEXT_RESEND_DECOMPOSITION_RESULTS.md) §6.
 
