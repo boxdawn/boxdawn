@@ -144,3 +144,58 @@ stage, and is reported as a miss rather than widened.
 No published figure is expected to move. The release notice names the three
 models and thresholds whose long requests will price differently in a user's
 report and budget guard, and says that on our data no request crossed them.
+
+## 7. Amendment before code (2026-10-17, same day)
+
+Found while wiring the call sites, before any code was committed. §1 and §5
+above are kept as written. This section replaces them where it says so.
+
+### 7.1 What §1 got wrong
+
+- **§1.2 said Toolathlon is a flat-rate path. It is not, for these call
+  sites.** The Toolathlon adapter writes the cache-split fields on every call
+  (`input_tokens_uncached` = the apportioned input, the cache fields 0,
+  `ingest/toolathlon.py:222`) together with `model`. So the report and
+  `context_resend` both take the table branch, which is the path the
+  published Corpus B `union_wr_cost` (0.9202) is computed on. Counted:
+  `gemini-2.5-pro_{1,2,3}` has **48 of 4,488 calls in 7 traces** whose
+  *apportioned* input is over 200,000 tokens. Applying §1 as written would
+  price those 48 at the long rate on lengths no request ever had, and could
+  move a published figure. §5 P2 would not have caught it, because the stage 1
+  Corpus B probe prices outside these call sites.
+- **§1.1 would not reach output in a CLI run.** The CLI passes the default
+  cost tables (`__main__.py:162`), so the Claude Code adapter also writes
+  `input_cost_rate` / `output_cost_rate`, copied from the short-rate entry.
+  The report prices output from `output_cost_rate` first, so a long
+  Haiku 5.5 request would have had its input at the long rate and its output
+  at the short one.
+
+### 7.2 Mechanism, replacing §1's "where applied"
+
+- One function, `long_context_override(call) -> ModelPricing | None`, in
+  `clew.cost.pricing`. It returns the long-rate entry only when all of these
+  hold: the call does not carry `prompt_tokens_apportioned: True`; its
+  `model` resolves to an entry with a tier; and its prompt length (§1
+  definition) is over that tier's threshold. Otherwise it returns `None`.
+- Where it returns an entry, that entry prices the call's input (by cache
+  tier when the split is reported, otherwise `input_tokens × base`) and its
+  output. It replaces the short-rate entry and any rate the adapter copied
+  from that entry into `input_cost_rate` / `output_cost_rate`. Where it
+  returns `None`, every code path is exactly as before.
+- Call sites: `report/_model.py` `_llm_call_input_cost` and
+  `_llm_call_output_cost`, and `detect/context_resend.py` `_ladder_for_call`
+  and `_rate_and_cost_for_call`, which the waste-rate denominator,
+  `redundant_read` and `semantic_duplicate` share. The budget guard reads raw
+  usage rather than adapter calls and applies `pricing_for_prompt` directly.
+- The Toolathlon adapter adds `prompt_tokens_apportioned: True` to every call
+  it builds, because those lengths are apportioned, not reported. No other
+  adapter apportions.
+
+### 7.3 Predictions, replacing §5 P2
+
+- **P2′ — Corpus B, on the changed path.** For every call of every Toolathlon
+  trace that builds (66 files), the three per-call costs this stage touches —
+  `_llm_call_input_cost`, `_llm_call_output_cost` and
+  `context_resend.input_cost_for_call` — are bit-identical before and after,
+  including the 48 calls over 200,000 tokens.
+- P1, P3, P4 and P5 are unchanged. A miss on P1, P2′ or P3 stops the stage.
