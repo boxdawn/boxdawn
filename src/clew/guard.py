@@ -3,8 +3,8 @@
 A `PreToolUse` hook. Before every tool call (main agent and subagents alike)
 it prices what the session has spent so far and, at or over the cap the
 customer set, denies that tool and stops the session. It does not stop on
-repeats or patterns: of 38 repeats hand-coded on trace-commons, 23 were
-legitimate (docs/ACCEPTED_PAIR_PRECISION_RESULTS.md).
+repeats or patterns: of 38 hand-coded Claude Code repeats, 23 were re-checks
+after an edit (docs/ACCEPTED_PAIR_PRECISION_RESULTS.md).
 
 What was measured before this was written (Claude Code 2.1.299, 2026-10-16,
 field_test/diagnostics/_budget_guard_design_DRAFT.md §2):
