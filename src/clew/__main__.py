@@ -809,6 +809,48 @@ def _estimate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _guard(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """`boxdawn guard ...` — see clew/guard.py."""
+    from clew import guard
+
+    if args.guard_cmd == "check":
+        out = guard.check(sys.stdin.read(), args.cap_usd, args.warn_at)
+        if out:
+            print(out)
+        return 0
+
+    project = Path(args.project).resolve()
+    try:
+        if args.guard_cmd == "install":
+            path = guard.install(project, args.cap_usd, args.warn_at)
+            print(f"budget guard installed: cap ${args.cap_usd:g}"
+                  + (f", warning at {args.warn_at:.0%}" if args.warn_at else ""))
+            print(f"  {path}")
+            print("  applies to Claude Code sessions started in this project from now on")
+            return 0
+        if args.guard_cmd == "uninstall":
+            removed = guard.uninstall(project)
+            print("budget guard removed" if removed else "budget guard was not installed")
+            return 0
+        if args.guard_cmd == "status":
+            cmds = guard.installed_commands(project)
+            if not cmds:
+                print(f"budget guard: not installed in {project}")
+            for c in cmds:
+                print(f"budget guard: installed  {c.split(' -m clew guard check ', 1)[-1]}")
+            events = [e for e in guard.read_events() if e.get("cwd") and
+                      Path(e["cwd"]).resolve() == project]
+            for kind in ("deny", "warn"):
+                n = len({e.get("session_id") for e in events if e.get("event") == kind})
+                print(f"  {'blocked' if kind == 'deny' else 'warned'} sessions here: {n}")
+            return 0
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    parser.print_help()
+    return 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="boxdawn", description="Boxdawn waste analyzer")
     sub = parser.add_subparsers(dest="cmd")
@@ -973,7 +1015,39 @@ def main() -> None:
     e.add_argument("--json", dest="json_out_stdout", action="store_true",
                    help="print JSON to stdout instead of a summary")
 
+    g = sub.add_parser(
+        "guard",
+        help="stop a Claude Code session once it has spent a set amount",
+        description=(
+            "Adds a PreToolUse hook to this project's .claude/settings.local.json. "
+            "Before each tool call it prices the session so far (main agent and "
+            "subagents) and, at or over your cap, denies the tool and stops the "
+            "session. The total is up to the previous call, so a session can end "
+            "past the cap by a call or two. A model the price table does not know "
+            "is priced at the default and the total is marked as a lower bound. "
+            "Nothing leaves this machine; blocks and warnings go to "
+            "~/.clew/guard_events.jsonl."
+        ),
+    )
+    gsub = g.add_subparsers(dest="guard_cmd")
+    gi = gsub.add_parser("install", help="add the hook to this project")
+    gi.add_argument("--cap-usd", type=float, required=True, metavar="USD",
+                    help="stop the session at this many dollars")
+    gi.add_argument("--warn-at", type=float, default=None, metavar="FRACTION",
+                    help="show one warning per session at this fraction of the cap (e.g. 0.8)")
+    gi.add_argument("--project", default=".", metavar="DIR",
+                    help="project directory (default: current directory)")
+    gu = gsub.add_parser("uninstall", help="remove the hook from this project")
+    gu.add_argument("--project", default=".", metavar="DIR")
+    gs = gsub.add_parser("status", help="show the installed cap and recorded blocks")
+    gs.add_argument("--project", default=".", metavar="DIR")
+    gc = gsub.add_parser("check", help=argparse.SUPPRESS)
+    gc.add_argument("--cap-usd", type=float, required=True)
+    gc.add_argument("--warn-at", type=float, default=None)
+
     args = parser.parse_args()
+    if args.cmd == "guard":
+        sys.exit(_guard(args, g))
     if args.cmd == "analyze":
         sys.exit(_analyze(args))
     elif args.cmd == "submit":
