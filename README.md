@@ -370,6 +370,7 @@ trustworthy first.
 - **API keys for CI and scripts.** Issue and revoke per project, so a trace can be sent with no browser in the loop.
 - **Open-source CLI that runs offline.** No account, no upload, no network. The hosted layer is a convenience, not the product boundary.
 - **Opt-in semantic pass.** LLM-as-judge on the pairs the deterministic gate cannot separate, off by default, with a hard cost cap per session.
+- **Budget guard for Claude Code** (`0.5.18`). A local hook that stops a session once it has spent a dollar cap you set. No waste judgment, nothing sent. See §Use.
 
 **Building next**
 
@@ -386,7 +387,9 @@ under — so neither automatic blocking nor a confirmation prompt shipped, and n
 planned until that changes. The measurement and its provenance are in
 §What Boxdawn doesn't do, one entry down; they are not repeated here, because a number
 with two homes is a number that will disagree with itself. Monitoring and alerting are a
-different claim, and they are on the list above.
+different claim, and they are on the list above. The budget guard below (`0.5.18`) is not
+this either: it stops a session at a dollar cap you set and makes no judgment about
+whether any call was waste.
 
 **Shipped since `0.5.4`:** `boxdawn submit` sends finished sessions to your project on a
 pre-registered close rule ([`docs/SESSION_CLOSE_RULE_PREREG.md`](https://github.com/boxdawn/boxdawn/blob/main/docs/SESSION_CLOSE_RULE_PREREG.md)),
@@ -413,7 +416,7 @@ and it works end to end against live key issuance. Verified in a clean virtualen
 The list below is what a serious evaluation would surface anyway, so it is here rather than in a footnote. Nothing in it is news to us.
 
 - **No fixes**, only diagnosis. The output is a report you read. Prompt changes, context caching, and tool routing are yours to make.
-- **No real-time interception.** The `args-only` real-time gate was retired at precision **0.6333** — 19 of 30 hand-annotated pairs, sampled from a pool of 3,432, measured 2026-07-25 against a threshold of 0.70 frozen beforehand. Below that bar neither auto-block nor a confirm-prompt is defensible, so neither shipped. Boxdawn reads finished trace files, after the run.
+- **No real-time interception.** The `args-only` real-time gate was retired at precision **0.6333** — 19 of 30 hand-annotated pairs, sampled from a pool of 3,432, measured 2026-07-25 against a threshold of 0.70 frozen beforehand. Below that bar neither auto-block nor a confirm-prompt is defensible, so neither shipped. The detectors read finished trace files, after the run. The one thing that acts during a run is the budget guard, which stops on a dollar cap you set, not on a waste judgment (§Use).
 - **The v0.3.0 in-cascade `reread` gate was retired** at 3.3% precision on a 30-pair sample — `random.Random(42)` over a pool of 209 same-path Read pairs from the trace-commons corpus (28 Claude Code sessions), reproduced 2026-07-24 against a threshold of 0.70 frozen beforehand: 29 of 30 pairs were legitimate chunked reads at different `offset` / `limit` values. See [`docs/REREAD_DETECTOR_PREREG.md`](https://github.com/boxdawn/boxdawn/blob/main/docs/REREAD_DETECTOR_PREREG.md) §11. The current standalone **Redundant Read Detector** (see *Where it stands* above) is a different approach: it requires interval-clean gating (no intervening write to the same target, no payload-opaque shell tool in the interval) before flagging, and emits per-event tokens/dollars rather than bundling into the cascade waste-cost line.
 - **No reasoning-level `pingpong`.** Code path exists but has fired only on synthetic traces. Blocked pending an external corpus that surfaces it, not killed.
 - **Tool coverage is 26.4% on Toolathlon** (138 of 523 unique tool names). Unmapped tools drop into `unclassified` and reduce interval-scan tier precision. The banner shows coverage on your specific trace; `clew.yaml` closes the gap (config file name kept for backward compatibility).
@@ -475,6 +478,26 @@ Finds sessions that have gone quiet long enough to call finished, uploads each o
 Needs a project key in `BOXDAWN_API_KEY` or `~/.clew/credentials.yaml`; sign in at [boxdawn.com](https://boxdawn.com) to issue one. `--dry-run` needs no key.
 
 Start with `--dry-run`. A first run is a backfill of every session on the machine, not a trickle: 81 of 84 on the machine the rule was measured on.
+
+### Stopping a Claude Code session at a dollar cap
+
+```bash
+boxdawn guard install --cap-usd 5 --warn-at 0.8   # in the project directory
+boxdawn guard status
+boxdawn guard uninstall
+```
+
+Adds one `PreToolUse` hook to the project's `.claude/settings.local.json` and leaves every other entry alone. Before each tool call, in the main agent and in subagents, it prices the session so far from the transcript, with the same price table the report uses. At or over the cap it denies that tool call and stops the session. `--warn-at` shows one warning per session at that fraction of the cap. Blocks and warnings are written to `~/.clew/guard_events.jsonl`; nothing is sent.
+
+What it cannot do, stated up front:
+
+- The total runs **up to the previous call**, because the call that asked for the tool is not in the transcript yet. A session can end past the cap by a call or two.
+- When a subagent is stopped, the main agent is not told why. Its next tool call is denied, and that is when the reason appears on screen.
+- A model call that uses no tool never triggers the hook, so it is not stopped.
+- A model the price table does not know is priced at the default and still counted. The message then calls the total a lower bound.
+- A subscription (Pro/Max) login is not billed per token, so a dollar cap means most with an API key.
+
+Checked on Claude Code 2.1.299, 2026-10-17: on the trace behind the product page the guard's total is $1.9723945 over 27 calls, equal to the report's `total_analyzed_cost`. A tool call was denied at the cap and allowed under it, and in an interactive session a person confirmed that the warning and the stop reason both appear on screen.
 
 ---
 
