@@ -189,3 +189,30 @@ calls whose `conversation` is absent or `"main"`.
   except `analyzed`.
 
 Stop if P1′ fails.
+
+### 9.1 Results (2026-10-18)
+
+Code `e44a828`. "Before" is a worktree of `ada0835`. Probe scripts are
+uncommitted (`field_test/diagnostics/_llm_calls_one_conversation_2026_10_18/`).
+
+| Session | P7 judge input equal (before → after) | P9 `redundant_read` equal | P10 cross-conversation semantic pairs (before → after) |
+|---|---|---|---|
+| `6f45b92c` | ✗ → ✅ | ✅ → ✅ | 1 → 0 (of 2 → 1) |
+| `083ffa23` | ✗ → ✅ | ✅ → ✅ | 1 → 0 (of 3 → 2) |
+| `14de1ba6` | ✗ → ✅ | ✅ → ✅ | 1 → 0 (of 1 → 0) |
+| `b7995abe` | ✗ → ✅ | ✅ → ✅ | 0 → 0 (of 1 → 1) |
+| `86d2d89f` | ✗ → ✅ | ✅ → ✅ | 1 → 0 (of 2 → 1) |
+| `ee41edd2` | ✗ → ✅ | ✅ → ✅ | 33 → 0 (of 961 → 928) |
+
+- **P7 ✅** 6/6. Before the fix, 6/6 differed.
+- **P9 ✅** 6/6, but it was already equal before the fix: no read in these six
+  sessions comes after the last main call, so the defect is not exercised by
+  this data. A unit test exercises it, and fails on the unfixed code.
+- **P10 ✅** 0 cross-conversation pairs. Before the fix, 5 of 6 sessions had
+  some (37 in total). Same-conversation pairs are kept: 961 − 33 = 928.
+- **P1′ ✅** 29/29 traces without `subagents/` identical except `analyzed`.
+- The default `analyze` report of the six sub-agent sessions is also identical
+  before and after. The judge and `semantic_duplicate` are opt-in, and
+  `redundant_read` did not move. What changes is the input to
+  `--verification` and `--llm-judge` on traces with sub-agents.
+- Suite: 1201 passed, 1 xfailed.
