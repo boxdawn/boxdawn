@@ -2,6 +2,63 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.19 — 2026-10-18 · **리포트가 가드와 같은 금액을 말한다 — 하위 에이전트와 긴 프롬프트**
+
+0.5.18 의 예산 가드는 하위 에이전트 기록을 셌는데 리포트는 안 셌다. 긴 프롬프트도
+둘 다 짧은 요율로 매겼다. 이 릴리스는 둘을 고친다. 그리고 하위 에이전트 파일이
+자동 제출에서 부모 세션의 행을 덮어쓰던 것을 막는다.
+
+### 수정 1 — 리포트가 하위 에이전트 비용을 센다 (`#292`)
+
+Claude Code 는 하위 에이전트 대화를 `<세션>/subagents/agent-<id>.jsonl` 에 따로 쓰고
+메인 파일에는 안 쓴다. 어댑터는 메인 파일만 읽었다 ⇒ `total_analyzed_cost` 와 낭비율
+분모에서 하위 에이전트 지출이 빠졌다. 이제 가드와 같은 파일 집합을 읽는다. 파일마다
+따로 대화 이력을 재구성해 `llm_calls` 뒤에 붙이고(`conversation` 태그), 이미 센
+`message.id` 는 건너뛴다. 하위 폴더가 없으면 아무것도 안 바뀐다.
+사전등록 `docs/CC_SUBAGENT_COST_PREREG.md` · 결과 `docs/CC_SUBAGENT_COST_RESULTS.md`
+(P1–P5 적중).
+
+- 로컬 6세션: 리포트 합계 = 가드 합계 6/6 (차이 ≤ 5e-9).
+- 하위 에이전트 도구 호출은 아직 span 이 아니다 ⇒ Claude Code 에서
+  `cross_agent_repeat` 는 여전히 발동하지 않는다.
+
+### 수정 2 — 긴 프롬프트는 긴 요율을 낸다 (`#288`)
+
+가격표에 긴 프롬프트 요율이 있는 세 모델(`haiku-5.5` > 100,000 토큰 · `gemini-2.5-pro`
+> 200k · `qwen-3.6-plus` > 256K)은 그 문턱을 넘는 호출에 긴 요율을 적용한다. 리포트와
+가드 둘 다. 사전등록 `docs/PRICING_COVERAGE_STAGE2_PREREG.md` · 결과
+`docs/PRICING_COVERAGE_STAGE2_RESULTS.md`. 🔴 우리가 가진 데이터에서는 움직인
+달러가 없다. 실시간 Claude Code 의 `haiku-5.5` 호출은 문턱 아래였고, Toolathlon 에서
+할당 길이가 200k 를 넘는 `gemini-2.5-pro` 48콜은 그 길이로 보낸 요청이 아니라서
+표식(`prompt_tokens_apportioned`)으로 긴 요율에서 뺀다.
+
+### 수정 3 — 하위 에이전트 파일은 혼자 제출되지 않는다 (`#293`)
+
+하위 에이전트 파일은 부모의 `sessionId` 를 가진다 ⇒ 같은 `trace_id`. 자동 제출이
+이 파일을 따로 올려서, 서버가 같은 키의 세션 행을 마지막에 도착한 파일의 값으로
+덮어썼다. 이제 `pending` 이 `subagents/` 아래 파일을 건너뛴다. `discover` 는 재귀
+그대로(실시간 감시자가 쓴다). 정정 `docs/SESSION_CLOSE_RULE_PREREG.md` §10 (R3a).
+
+- 🔴 클라우드는 이제 부모 파일만 받는다 ⇒ 하위 에이전트가 있는 세션의 클라우드 비용은
+  부모 단독(과소). 부모와 하위를 묶어 올리는 것은 별도 단계다. 이미 올라간 행은
+  고치지 않는다.
+
+### 그 밖
+
+- `--verification` 도움말 비용을 라이브 실측값으로(`#287`): 2026-10-17 호스팅 분석기에서
+  공개 트레이스 4건 $0.019~$0.040. 이전 문구의 $0.0046 · 1.8초는 오프라인 측정이었다.
+- README 에 예산 가드 소개(`#285`). 문서: `#286` · `#289` · `#290`.
+
+### 공개 수치 — ✅ 안 움직인다
+
+- Corpus A(trace-commons 28): `union_wr_cost` **0.8449** · `union_wr_char` **0.9916** —
+  변경 전과 같은 값을 다시 쟀다. 28개 리포트 JSON 은 `analyzed` 시각 필드 외에 전부 같다.
+- 인용 트레이스(`agent-race/claude-code.jsonl`): `total_analyzed_cost $1.9723945` ·
+  `total_llm_input_cost $1.5958695` · `total_waste_cost $0.9015315` · `waste_ratio 0.457075` ·
+  재전송 `1,415,467 / 1,596,520`(**88.7%**) — 0.5.18 과 같다.
+- 서버 분석기는 같은 파일에 같은 결과를 낸다: 서버는 하위 폴더를 받지 않는다. 바뀌는 것은
+  자동 제출이 무엇을 보내느냐(수정 3)뿐이다.
+
 ## 0.5.18 — 2026-10-17 · **정한 금액을 쓰면 Claude Code 세션을 멈춘다**
 
 새 명령 `boxdawn guard`. 고객이 정한 달러 상한에 닿으면 다음 도구 호출을 거부하고
