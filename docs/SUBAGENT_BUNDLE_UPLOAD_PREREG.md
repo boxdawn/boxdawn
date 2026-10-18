@@ -221,8 +221,8 @@ uncommitted (`field_test/diagnostics/_llm_calls_one_conversation_2026_10_18/`).
 
 Code: boxdawn-cloud `feat/subagent-bundle` (`cloud#45`). Measured locally
 through FastAPI's `TestClient` (the multipart HTTP shape, not a direct
-function call) with the real analyzer, boxdawn 0.5.20 from PyPI's code at
-`e4410d9`. "Old" is cloud `main` at `f1f7880`, the live deploy. Requests were
+function call) with the real analyzer: the `boxdawn` CLI 0.5.20, an editable install of
+engine `main` at `e4410d9` (the code released as 0.5.20). "Old" is cloud `main` at `f1f7880`, the live deploy. Requests were
 anonymous, so nothing was stored. Scripts uncommitted.
 
 | | Prediction | Result |
