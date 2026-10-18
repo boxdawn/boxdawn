@@ -203,3 +203,16 @@ until the parent arrives (read from the code, not reproduced).
 
 Files already uploaded keep whatever value they wrote. This amendment does not
 re-send or repair them.
+
+### 10.1 Results (2026-10-18)
+
+Measured on this machine with an empty ledger and a fixed `now`, before and
+after the code change.
+
+- P1 ✅ in substance: `discover` found **81** files before and after, 6 under
+  `subagents/`. The prediction said 80; one session file appeared between
+  writing it and measuring. The code did not change the count.
+- P2 ✅ `pending`: 81 → 75. The 6 removed are exactly the `subagents/` files,
+  and the other 75 are the same set.
+- P3 ✅ `test_discovery_reaches_subagent_traces` passes unchanged. A new test
+  asserts the sub-agent file is discovered and not pending.
