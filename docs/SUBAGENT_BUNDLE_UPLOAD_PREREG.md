@@ -216,3 +216,22 @@ uncommitted (`field_test/diagnostics/_llm_calls_one_conversation_2026_10_18/`).
   `redundant_read` did not move. What changes is the input to
   `--verification` and `--llm-judge` on traces with sub-agents.
 - Suite: 1201 passed, 1 xfailed.
+
+## 10. Results — stage (a), the server (2026-10-18)
+
+Code: boxdawn-cloud `feat/subagent-bundle` (`cloud#45`). Measured locally
+through FastAPI's `TestClient` (the multipart HTTP shape, not a direct
+function call) with the real analyzer, boxdawn 0.5.20 from PyPI's code at
+`e4410d9`. "Old" is cloud `main` at `f1f7880`, the live deploy. Requests were
+anonymous, so nothing was stored. Scripts uncommitted.
+
+| | Prediction | Result |
+|---|---|---|
+| P1 | Old-shape request: new server = old | ✅ 4/4 identical except `analyzed`: the cited trace and the three smallest trace-commons sessions |
+| P2 | Bundle total = local `boxdawn analyze` | ✅ 6/6 within 1e-6, e.g. `ee41edd2` $42.98736715 both. The old server on the same bundle gives the parent alone ($42.96623800) |
+| P3 | Parts each under the limit, sum over → 413 | ✅ new 413 (two 9 MiB parts). The old server answered 200: it ignores the parts |
+| P4 | Old server ignores `subagent` parts | ✅ 6/6: the bundle's report is identical to the parent-only report on the old server |
+| P5 | Bad names → 422 `bad_subagent_name` | ✅ 3/3 (`../x.jsonl`, `agent-1.json`, `x.jsonl`). The check runs before anything is written |
+
+Not measured here: P6 and P8 (client, stage (c)), and P7 (shipped in 0.5.20,
+§9.1). The deployed server is not measured until (a) is deployed.
