@@ -143,3 +143,76 @@ traces without sub-agents, the judge input is unchanged (P1 covers it).
 4. **Order:** (a) cloud deploy that accepts `subagent` parts, harmless to
    today's client (P1). (b) Web copy live. (c) Engine release with the client
    change. The engine does not release (c) before the web confirms (b).
+
+## 9. Amendment before code — P7 is one of three (2026-10-18)
+
+Written on `main` at `ada0835`, before the fix. The fix ships alone as 0.5.20,
+ahead of the bundle (decided 2026-10-18).
+
+**What §8.1 missed.** Before writing the fix I listed every reader of
+`metadata["llm_calls"]` outside ingest. Three of them assume the list is one
+conversation, and since 0.5.19 it is not:
+
+| Reader | Assumption | Effect with sub-agent calls appended |
+|---|---|---|
+| `verification_judge._user_texts` / `_assistant_texts` (`:163,190`) | every user message is the user's | a sub-agent's prompt, written by the main agent, is read as the user's words |
+| `redundant_read._next_llm_call_after` (`:212-229`) | the list is in time order, and the last entry is the latest main call | a read after the last main call takes a sub-agent call's rate (its fallback is `llm_calls[-1]`) |
+| `semantic_duplicate` candidate pairs (`:206-224`) | two calls are two requests of one conversation | a main chunk and a sub-agent chunk can be judged a paraphrased resend |
+
+The other readers are correct with sub-agent calls in the list:
+`report/_model.py`, `metrics/waste_rate.py` and `guard.py` sum cost, which is
+the point of `#292`. `context_resend` was tested: 0 of 29,506 events cross
+conversations (`CC_SUBAGENT_COST_RESULTS.md` P3). The `__main__` count is a
+display.
+
+**Frozen fix.** One helper, `main_conversation_calls(trace)`, returns the
+calls whose `conversation` is absent or `"main"`.
+
+- The judge and `redundant_read` read only those calls. `redundant_read`'s
+  candidates are main-conversation tool spans, so their next call is a
+  main-conversation call.
+- `semantic_duplicate` pairs two chunks only when their calls share a
+  conversation. Sub-agent resends inside one sub-agent stay in scope, as
+  they do for `context_resend`.
+
+**Predictions.**
+
+- **P7** (unchanged): on the six local sessions, `render_trace_for_judge`
+  with the `subagents/` directory present equals it with the directory
+  removed.
+- **P9**: on the six local sessions, the `redundant_read` result with the
+  directory present equals it with the directory removed, field by field.
+- **P10**: on the six local sessions, no `semantic_duplicate` candidate pair
+  joins two conversations. Counted with a stub judge, so no model is called.
+- **P1′**: traces without a `subagents/` directory are unchanged: the 28
+  trace-commons sessions and the cited trace, analyze JSON field by field
+  except `analyzed`.
+
+Stop if P1′ fails.
+
+### 9.1 Results (2026-10-18)
+
+Code `e44a828`. "Before" is a worktree of `ada0835`. Probe scripts are
+uncommitted (`field_test/diagnostics/_llm_calls_one_conversation_2026_10_18/`).
+
+| Session | P7 judge input equal (before → after) | P9 `redundant_read` equal | P10 cross-conversation semantic pairs (before → after) |
+|---|---|---|---|
+| `6f45b92c` | ✗ → ✅ | ✅ → ✅ | 1 → 0 (of 2 → 1) |
+| `083ffa23` | ✗ → ✅ | ✅ → ✅ | 1 → 0 (of 3 → 2) |
+| `14de1ba6` | ✗ → ✅ | ✅ → ✅ | 1 → 0 (of 1 → 0) |
+| `b7995abe` | ✗ → ✅ | ✅ → ✅ | 0 → 0 (of 1 → 1) |
+| `86d2d89f` | ✗ → ✅ | ✅ → ✅ | 1 → 0 (of 2 → 1) |
+| `ee41edd2` | ✗ → ✅ | ✅ → ✅ | 33 → 0 (of 961 → 928) |
+
+- **P7 ✅** 6/6. Before the fix, 6/6 differed.
+- **P9 ✅** 6/6, but it was already equal before the fix: no read in these six
+  sessions comes after the last main call, so the defect is not exercised by
+  this data. A unit test exercises it, and fails on the unfixed code.
+- **P10 ✅** 0 cross-conversation pairs. Before the fix, 5 of 6 sessions had
+  some (37 in total). Same-conversation pairs are kept: 961 − 33 = 928.
+- **P1′ ✅** 29/29 traces without `subagents/` identical except `analyzed`.
+- The default `analyze` report of the six sub-agent sessions is also identical
+  before and after. The judge and `semantic_duplicate` are opt-in, and
+  `redundant_read` did not move. What changes is the input to
+  `--verification` and `--llm-judge` on traces with sub-agents.
+- Suite: 1201 passed, 1 xfailed.
