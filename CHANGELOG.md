@@ -2,6 +2,39 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.20 — 2026-10-18 · **하위 에이전트의 지시문은 사용자의 말이 아니다**
+
+0.5.19 는 하위 에이전트 호출을 `llm_calls` 에 붙였다(`#292`). 비용 합계는 그래야
+맞다. 그런데 이 목록을 **대화 하나**로 읽는 곳이 셋 있었고, 0.5.19 사전등록은
+`context_resend` 만 확인했다. 셋 다 하위 에이전트가 있는 Claude Code 세션에서만
+틀린다.
+
+### 수정 (`#296`)
+
+| 읽는 곳 | 0.5.19 에서 | 0.5.20 |
+|---|---|---|
+| 판정 축 (`--verification`) | 본 에이전트가 하위 에이전트에게 쓴 지시문을 **사용자가 한 말**로 판정 모델에 넣었다 | 메인 대화만 읽는다 |
+| `semantic_duplicate` (`--llm-judge`) | 메인 청크와 하위 청크를 "의미상 재전송" 후보로 짝지을 수 있었다 | 같은 대화 안에서만 짝짓는다 |
+| `redundant_read` | 마지막 메인 호출 뒤의 읽기가 하위 호출의 요율을 받을 수 있었다(대체값 `llm_calls[-1]`) | 메인 대화 호출만 본다 |
+
+새 helper `clew.model.main_conversation_calls(trace)`: `conversation` 태그가 없거나
+`"main"` 인 호출. 사전등록 정정 `docs/SUBAGENT_BUNDLE_UPLOAD_PREREG.md` §9 · 결과 §9.1.
+
+### 확인한 것
+
+- 하위 에이전트가 있는 로컬 6세션: 판정 입력이 하위 폴더를 뺀 경우와 같다 6/6
+  (0.5.19 는 6/6 달랐다). 대화를 넘는 semantic 후보 37 → 0.
+- `redundant_read` 결함은 이 6세션에선 조건이 안 생겨 결과가 원래 같았다. 단위
+  테스트가 고치기 전 코드에서 실패하는 것으로 확인했다.
+- 🔴 기본 `analyze` 리포트는 6세션 모두 0.5.19 와 같다. 바뀌는 것은 opt-in 인
+  `--verification` · `--llm-judge` 의 입력이다.
+
+### 공개 수치 — ✅ 안 움직인다
+
+하위 폴더가 없는 트레이스 29개(trace-commons 28 + 인용 트레이스)는 리포트 JSON 이
+`analyzed` 시각 필드 외에 전부 같다. 서버는 하위 폴더를 받지 않으므로 호스팅 판정
+결과도 같은 파일에 같다.
+
 ## 0.5.19 — 2026-10-18 · **리포트가 가드와 같은 금액을 말한다 — 하위 에이전트와 긴 프롬프트**
 
 0.5.18 의 예산 가드는 하위 에이전트 기록을 셌는데 리포트는 안 셌다. 긴 프롬프트도
