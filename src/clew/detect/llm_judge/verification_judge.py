@@ -35,7 +35,7 @@ from clew.detect.llm_judge.verification_prompts import (
     TOOL_OUTPUT_MAX_CHARS,
     build_verification_message,
 )
-from clew.model import Trace
+from clew.model import Trace, main_conversation_calls
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +160,7 @@ def _user_texts(trace: Trace) -> list[str]:
     call, and a turn seen twice is one thing the user said.
     """
     seen: dict[str, None] = {}
-    for call in trace.metadata.get("llm_calls") or []:
+    for call in main_conversation_calls(trace):
         for message in _messages_of(call.get("input_text")):
             if not isinstance(message, dict) or message.get("role") != "user":
                 continue
@@ -187,7 +187,7 @@ def _assistant_texts(trace: Trace) -> list[str]:
     agent said, not two.
     """
     seen: dict[str, None] = {}
-    for call in trace.metadata.get("llm_calls") or []:
+    for call in main_conversation_calls(trace):
         for message in _messages_of(call.get("input_text")):
             if not isinstance(message, dict) or message.get("role") != "assistant":
                 continue

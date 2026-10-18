@@ -179,3 +179,19 @@ class Trace(BaseModel):
             )
 
         return build(root)
+
+
+def main_conversation_calls(trace: Trace) -> list[dict[str, Any]]:
+    """The trace's LLM calls that belong to its main conversation.
+
+    Since 0.5.19 the Claude Code adapter appends each sub-agent's calls to
+    `metadata["llm_calls"]`, tagged with `conversation` (CC Subagent Cost
+    prereg §1). Cost totals want all of them. A reader that treats the list as
+    one conversation, in time order and with the user on one side, wants
+    these (Sub-agent Bundle Upload prereg §9). A call with no tag is main:
+    every other adapter, and Claude Code without sub-agents.
+    """
+    return [
+        call for call in trace.metadata.get("llm_calls") or []
+        if call.get("conversation", "main") == "main"
+    ]

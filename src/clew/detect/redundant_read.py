@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from clew.cost.pricing import get_pricing
 from clew.detect.context_resend import _rate_and_cost_for_call
 from clew.detect.structural import identity_of
-from clew.model import Span, Trace
+from clew.model import Span, Trace, main_conversation_calls
 
 if TYPE_CHECKING:
     from clew.config import ResolvedTools
@@ -238,7 +238,9 @@ def _resolve_rate_for_read(
     LLM calls in trace, use pricing.py default. If no next call after
     cand_end, use the most recent call (retrospective).
     """
-    llm_calls = list(trace.metadata.get("llm_calls") or [])
+    # Candidates are main-conversation tool spans, so their next call is a
+    # main-conversation call (Sub-agent Bundle Upload prereg §9).
+    llm_calls = main_conversation_calls(trace)
     next_call = _next_llm_call_after(llm_calls, cand_end)
     if next_call is None:
         pricing = get_pricing(None)

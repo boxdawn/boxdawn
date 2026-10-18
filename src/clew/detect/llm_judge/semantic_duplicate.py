@@ -109,6 +109,44 @@ def _extract_chunks(
     return out
 
 
+def _candidate_pairs(
+    chunks: list[tuple[str, str, str | None, int]],
+    llm_calls: list[dict[str, Any]],
+) -> list[tuple[int, int, float]]:
+    """Candidate pairs `(i, j, jaccard)`: different calls of one conversation,
+    non-identical bytes. Prereg §5: Jaccard >= 0.30 pre-filter.
+
+    A main-conversation chunk and a sub-agent chunk are never paired: they were
+    never one request sequence, so one cannot be a resend of the other
+    (Sub-agent Bundle Upload prereg §9).
+    """
+    conversation = [call.get("conversation", "main") for call in llm_calls]
+    candidates: list[tuple[int, int, float]] = []
+    seen_pair_hashes: set[tuple[str, str]] = set()
+    for i in range(len(chunks)):
+        for j in range(i + 1, len(chunks)):
+            text_i, hash_i, _role_i, call_i = chunks[i]
+            text_j, hash_j, _role_j, call_j = chunks[j]
+            if call_i == call_j:
+                continue
+            if conversation[call_i] != conversation[call_j]:
+                continue
+            if hash_i == hash_j:
+                continue  # byte-exact — context_resend territory
+            # Deduplicate pair hashes (same chunk pair appearing across
+            # multiple calls should be judged once).
+            pair_key = (hash_i, hash_j) if hash_i < hash_j else (hash_j, hash_i)
+            if pair_key in seen_pair_hashes:
+                continue
+            seen_pair_hashes.add(pair_key)
+
+            jac = _jaccard(text_i, text_j)
+            if jac < JACCARD_THRESHOLD:
+                continue
+            candidates.append((i, j, jac))
+    return candidates
+
+
 # ── JudgeClient protocol ────────────────────────────────────────────────────
 
 # For testability the detector accepts an optional `judge_fn` callable.
@@ -201,30 +239,7 @@ def find_llm_judge_semantic_duplicates(
     if len(chunks) < 2:
         return result
 
-    # Build candidate pairs: different calls, non-identical bytes.
-    # Prereg §5: Jaccard >= 0.30 pre-filter.
-    candidates: list[tuple[int, int, float]] = []  # (i, j, jaccard)
-    seen_pair_hashes: set[tuple[str, str]] = set()
-    for i in range(len(chunks)):
-        for j in range(i + 1, len(chunks)):
-            text_i, hash_i, _role_i, call_i = chunks[i]
-            text_j, hash_j, _role_j, call_j = chunks[j]
-            if call_i == call_j:
-                continue
-            if hash_i == hash_j:
-                continue  # byte-exact — context_resend territory
-            # Deduplicate pair hashes (same chunk pair appearing across
-            # multiple calls should be judged once).
-            pair_key = (hash_i, hash_j) if hash_i < hash_j else (hash_j, hash_i)
-            if pair_key in seen_pair_hashes:
-                continue
-            seen_pair_hashes.add(pair_key)
-
-            jac = _jaccard(text_i, text_j)
-            if jac < JACCARD_THRESHOLD:
-                continue
-            candidates.append((i, j, jac))
-
+    candidates = _candidate_pairs(chunks, llm_calls)
     if not candidates:
         return result
 
