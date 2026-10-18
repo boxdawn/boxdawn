@@ -105,3 +105,41 @@ in the same layout, the 0.5.19 adapter reads them with no analyzer change.
 - The engine change ships in the next release. It changes what `submit`
   sends and adds a request shape, so the web gets the "cloud CLI change"
   notice. The response schema does not change.
+
+## 8. Added before merge, from the web session's review (2026-10-18)
+
+The web's copy quotes these values, and the copy must be live before the
+client ships.
+
+### 8.1 The verification judge reads sub-agent calls — found while answering
+
+`verification_judge._user_texts` and `_assistant_texts`
+(`src/clew/detect/llm_judge/verification_judge.py:163,190`) walk every entry of
+`metadata["llm_calls"]`. Since 0.5.19 that list includes sub-agent calls
+(`#292`). A sub-agent's first user message is the prompt the main agent wrote
+to it, so it is read as **something the user said**. `#292`'s pre-registration
+said detectors were unchanged and checked `context_resend` only; the judge was
+not checked. Today this reaches only a local run with `--verification`,
+because the server never has the `subagents/` directory. A bundle would carry
+it to the hosted judge.
+
+**Frozen:** before the bundle ships, the judge reads main-conversation calls
+only (`conversation` absent or `"main"`). Sub-agent content is **not** sent to
+the judge model. Prediction **P7**: on the six local sessions, the judge's
+input text is identical to a run with the `subagents/` directory removed. On
+traces without sub-agents, the judge input is unchanged (P1 covers it).
+
+### 8.2 Values the copy can quote
+
+1. **Judge input:** main conversation only (§8.1). Sub-agent files are
+   analyzed for cost and resend, and are not sent to the judge model.
+2. **Size:** 16 MiB on the **sum** of the session file and its sub-agent files.
+   Over it, 413, the same code as a single file over it, whichever part is
+   large. The client records the bundle total as `refused_bytes`.
+3. **`submit --dry-run`** lists, under each session, its sub-agent files with
+   their sizes and the bundle total. What is listed is exactly what is sent.
+   Prediction **P8**: for a session with sub-agents, the dry-run lists the
+   same file set that `_multipart` puts in the body.
+4. **Order:** (a) cloud deploy that accepts `subagent` parts, harmless to
+   today's client (P1). (b) Web copy live. (c) Engine release with the client
+   change. The engine does not release (c) before the web confirms (b).
