@@ -274,6 +274,10 @@ def pending(root: Path, now: datetime, ledger: dict,
     """
     out = []
     for p in discover(root):
+        if p.parent.name == "subagents":
+            # R3a (SESSION_CLOSE_RULE_PREREG §10): a sub-agent file carries its
+            # parent's sessionId, so sent alone it replaces the parent's row.
+            continue
         entry = ledger.get(str(p))
         if _refused_for_size(p, entry, limit_bytes):
             continue
