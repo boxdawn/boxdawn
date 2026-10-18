@@ -161,3 +161,45 @@ treat the first run as ordinary:
 - Submissions must be paced rather than fired at once. The pacing value is an
   implementation detail, not a threshold in this preregistration.
 - An operator must be able to see what a first run would do before it does it.
+
+## 10. Amendment — sub-agent files are found but not sent on their own (2026-10-18)
+
+Written before any code change, on `main` at `50b7a5f`. §5 is not rewritten;
+this section replaces R3's consequence for submission only.
+
+**What R3 got wrong.** A sub-agent file carries its parent's `sessionId`
+(6/6 local files). The adapter takes `trace_id` from it
+(`ingest/claude_code.py`), so R3 sends a second file under the same
+`trace_id`, which R2 says is sent once. The server's upsert key is
+`(project_id, trace_id, params_key)` (boxdawn-cloud
+`migrations/0018_run_upsert.sql:56`, reported by the web session; live
+database not queried). Each upload of either file **replaces** the session's
+row. `discover` sorts `<sid>/subagents/…` before `<sid>.jsonl` (measured 6/6),
+so within one sweep the parent usually lands last, and the row holds the parent
+alone. R1 is judged per file, so a sub-agent file can close while its parent is
+still open. In that case the sub-agent's numbers stand in for the whole session
+until the parent arrives (read from the code, not reproduced).
+
+**The amendment.**
+
+- **R3a.** `pending` skips any file whose directory is named `subagents`. Such
+  a file is not submitted on its own.
+- `discover` stays recursive. The live watcher (`live.py`) uses it, and a
+  repeat inside a sub-agent is still worth an alert.
+- The local report already counts sub-agent spend in its parent
+  (`docs/CC_SUBAGENT_COST_RESULTS.md`). The cloud does not yet: it receives the
+  parent only, so its cost for a session with sub-agents is the parent's
+  alone. That is an under-count, and it is the known gap until uploads carry
+  the sub-agent files with their parent, which is a separate contract change.
+
+**Predictions.**
+
+- P1. On this machine, `discover` still finds 80 files, 6 of them under
+  `subagents/`.
+- P2. With an empty ledger and no `since`, `pending` returns no file under
+  `subagents/`, and returns the same non-sub-agent files as before.
+- P3. The shipped test `test_discovery_reaches_subagent_traces` still passes
+  unchanged. It asserts discovery, which R3a does not change.
+
+Files already uploaded keep whatever value they wrote. This amendment does not
+re-send or repair them.
