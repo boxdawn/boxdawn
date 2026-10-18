@@ -491,6 +491,60 @@ def _build_ingest_notes(
     return notes
 
 
+def _append_subagent_llm_calls(
+    path: Path,
+    llm_calls: list[dict[str, object]],
+    llm_call_counts: dict[str, int],
+    *,
+    input_cost_table: dict[str, float] | None,
+    output_cost_table: dict[str, float] | None,
+) -> dict:
+    """Add the session's subagent calls to `llm_calls` (CC Subagent Cost prereg §1).
+
+    Claude Code writes each subagent's conversation beside the session, under
+    `<session>/subagents/`, and never into the main file. The budget guard
+    already prices those files (`guard.session_cost`); this reads the same
+    set, so a report and the guard agree on what a session cost.
+
+    Each file is extracted on its own: a subagent's history is its own
+    request sequence, and interleaving it with the main one would rebuild
+    neither. A `message.id` already counted is skipped, the guard's rule.
+
+    Without a `subagents/` directory this returns `{}` and touches nothing,
+    so a trace without subagents is unchanged.
+    """
+    sub_dir = path.with_suffix("") / "subagents"
+    if not sub_dir.is_dir():
+        return {}
+    files = sorted(sub_dir.glob("*.jsonl"))
+    for call in llm_calls:
+        call["conversation"] = "main"
+    seen = {call["span_id"] for call in llm_calls}
+    n_sub_calls = 0
+    for sub_path in files:
+        agent_id = sub_path.stem.removeprefix("agent-")
+        sub_calls, sub_counts = _extract_llm_calls(
+            _load_jsonl(sub_path),
+            input_cost_table=input_cost_table,
+            output_cost_table=output_cost_table,
+        )
+        for key, value in sub_counts.items():
+            llm_call_counts[key] = llm_call_counts.get(key, 0) + value
+        for call in sub_calls:
+            span_id = call["span_id"]
+            if isinstance(span_id, str) and span_id.startswith("cc-llm-"):
+                # No message.id: its own call, as in the guard. The synthetic id
+                # is per file, so it is qualified to stay unique in the trace.
+                call["span_id"] = f"cc-llm-{agent_id}-{span_id[len('cc-llm-'):]}"
+            elif span_id in seen:
+                continue
+            seen.add(call["span_id"])
+            call["conversation"] = agent_id
+            llm_calls.append(call)
+            n_sub_calls += 1
+    return {"subagent_files": len(files), "subagent_llm_calls": n_sub_calls}
+
+
 def ingest_claude_code_jsonl(
     path: Path,
     *,
@@ -697,6 +751,21 @@ def ingest_claude_code_jsonl(
         input_cost_table=input_cost_table,
         output_cost_table=output_cost_table,
     )
+    subagent_notes = _append_subagent_llm_calls(
+        path,
+        llm_calls,
+        llm_call_counts,
+        input_cost_table=input_cost_table,
+        output_cost_table=output_cost_table,
+    )
+    ingest_notes = _build_ingest_notes(
+        n_orphan_use_skipped=n_orphan_use_skipped,
+        no_tool_use_recovery=no_tool_use_recovery,
+        unknown_block_types=unknown_block_types,
+        nontext_notes=nontext_notes,
+        llm_call_counts=llm_call_counts,
+    )
+    ingest_notes.update(subagent_notes)
 
     return Trace(
         trace_id=session_id,
@@ -710,12 +779,6 @@ def ingest_claude_code_jsonl(
             "cc_total_turns": cc_total_turns,
             "error_span_ids": error_span_ids,
             "llm_calls": llm_calls,
-            "ingest_notes": _build_ingest_notes(
-                n_orphan_use_skipped=n_orphan_use_skipped,
-                no_tool_use_recovery=no_tool_use_recovery,
-                unknown_block_types=unknown_block_types,
-                nontext_notes=nontext_notes,
-                llm_call_counts=llm_call_counts,
-            ),
+            "ingest_notes": ingest_notes,
         },
     )
