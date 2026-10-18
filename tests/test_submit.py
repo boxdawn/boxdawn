@@ -99,6 +99,17 @@ def test_discovery_reaches_subagent_traces(tmp_path):
     assert found == {"top.jsonl", "agent-1.jsonl"}
 
 
+def test_a_subagent_file_is_found_but_not_sent_alone(tmp_path):
+    # R3a (SESSION_CLOSE_RULE_PREREG §10): it carries the parent's sessionId,
+    # so sent alone it replaces the parent's run row on the server.
+    top = _session(tmp_path / "proj" / "sess.jsonl", NOW - timedelta(hours=9))
+    sub = _session(tmp_path / "proj" / "sess" / "subagents" / "agent-1.jsonl",
+                   NOW - timedelta(hours=9))
+
+    assert sub in submit.discover(tmp_path)
+    assert submit.pending(tmp_path, NOW, {}) == [top]
+
+
 def test_discovery_of_a_missing_root_is_empty_not_an_error(tmp_path):
     assert submit.discover(tmp_path / "nope") == []
 
