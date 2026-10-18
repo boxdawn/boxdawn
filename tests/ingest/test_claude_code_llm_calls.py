@@ -23,6 +23,13 @@ def _write_jsonl(tmp_path: Path, entries: list[dict[str, Any]]) -> Path:
     return p
 
 
+def _main_calls(trace) -> list[dict[str, Any]]:
+    """Calls of the main conversation. Subagent calls (CC Subagent Cost prereg
+    §2) are appended to `llm_calls` but are not main-conversation turns."""
+    return [c for c in trace.metadata["llm_calls"]
+            if c.get("conversation", "main") == "main"]
+
+
 def _base_session_entries() -> list[dict[str, Any]]:
     """Minimum viable CC session: one user + one assistant with one tool_use +
     one user tool_result. Produces a single tool span pair.
@@ -403,7 +410,7 @@ def test_total_turns_equals_the_number_of_llm_calls(tmp_path):
                     _two_calls_second_one_split()):
         p = _write_jsonl(tmp_path, entries)
         trace = ingest_claude_code_jsonl(p)
-        assert trace.metadata["cc_total_turns"] == len(trace.metadata["llm_calls"])
+        assert trace.metadata["cc_total_turns"] == len(_main_calls(trace))
 
 
 def _two_calls_second_one_split() -> list[dict[str, Any]]:
@@ -495,7 +502,7 @@ def test_an_assistant_line_without_a_message_id_is_its_own_turn(tmp_path):
     trace = ingest_claude_code_jsonl(p)
 
     assert trace.metadata["cc_total_turns"] == 2
-    assert trace.metadata["cc_total_turns"] == len(trace.metadata["llm_calls"])
+    assert trace.metadata["cc_total_turns"] == len(_main_calls(trace))
 
 
 def _compacted_session_entries() -> list[dict[str, Any]]:
