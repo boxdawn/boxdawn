@@ -80,3 +80,30 @@ current is corrected in the same commit: `:232`, `:239`, `:251`, `:258`,
 
 Web and marketing: a public figure changes. Corpus A `union_wr_cost` and
 anything quoting 84.5%.
+
+## 6. Results (2026-10-19)
+
+Run on `main` at `7829e39`, `PYTHONHASHSEED=0`, after the one-line change of
+§1 (`waste_rate_metric.py:80`; the script stays uncommitted). Each session was
+measured twice in the same run: once with the Opus 4.8 keys removed from the
+rate tables (before), once with them (after). Scorer uncommitted (scratchpad).
+
+| | Prediction | Before | After | |
+|---|---|---:|---:|---|
+| P1 | 28 priced, 308.4824 / 343.2929 = 0.8986 | 23 · 124.7402 / 147.6331 = 0.8449 | **28 · 308.4824 / 343.2929 = 0.8986** | ✅ |
+| P2 | `union_wr_char` 0.9916, `union_sdr_at_10` 0.9643 | 0.9916 · 0.9643 | 0.9916 · 0.9643 | ✅ |
+| P3 | the 23 bit-identical | | 23 / 23 bit-identical | ✅ |
+| P4 | 0 Opus 4.8 model strings in B and D | | B: 0 in 66 files · D: 0 in 1,017 files (models: `mimo-v2.5-pro` 4,690, `sonnet` 1) | ✅ |
+| P5 | `:232` single-detector ratio, not predicted | 124.7191 / 147.6331 = 0.8448 · per-session median 0.7813 | **308.4588 / 343.2929 = 0.8985 · per-session median 0.7742** | |
+| P6 | per-session `wr_cost` spread, not predicted | p10 0.3122 · median 0.7815 · p90 0.9190 | **p10 0.2648 · median 0.7743 · p90 0.9239** | |
+
+P6 uses `statistics.quantiles(n=10)`, the method behind the published spread
+(`_release_0516_remeasure.py:50`). It reproduces the published 0.3122 /
+0.7815 / 0.9190 on the before arm. A first pass used `numpy.percentile`
+(0.3512 / 0.7815 / 0.9104 before) and is discarded: it is not the published
+method.
+
+**The corrected figure moves up, by 0.0537.** The five added sessions carry
+$195.66 of the $343.29 denominator (57%), and one of them, `da5d32d6`,
+$118.44 (34.5%). Its own `wr_cost` is 0.9628. The figure now leans on that
+one session more than on any other.
