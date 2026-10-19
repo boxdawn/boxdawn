@@ -2,6 +2,35 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.22 — 2026-10-19 · **실패한 도구 호출을 같은 실패로 다시 부른 것을 센다 (OpenTelemetry)**
+
+도구 호출이 실패했고, 바로 다음 호출이 같은 도구인데 또 실패한 경우를 센다. 달러는 붙이지
+않고 낭비 합계에도 들어가지 않는다. **OpenTelemetry / OpenInference 트레이스에만** 돈다.
+
+### 바뀐 것 (`#304`)
+
+- 수집: `otel_spans_to_trace` 가 상태가 오류인 도구 span 을 `metadata["error_span_ids"]` 에
+  기록한다(Claude Code 어댑터가 `is_error` 로 쓰던 키와 같은 뜻). 파일 Format A(`"ERROR"`) ·
+  Format C(`"Error"`) · 실시간 `ReadableSpan`(`StatusCode.ERROR`) 세 입구 모두.
+- 탐지기 `clew.detect.failed_retry.find_failed_retries`.
+- 리포트: 사건이 있을 때만 `## Failed retries` 절과 JSON `failed_retries` 키. 없으면 리포트는
+  이전과 바이트가 같다.
+
+### 근거와 범위
+
+- TRAIL gaia 에서 이 규칙의 사건 중 한 도구 결함(`page_down`)을 뺀 20건 가운데 9건에 사람
+  오류 라벨이 있다(0.45, 95% CI 0.23–0.68). 🔴 그중 컨텍스트 범주 라벨은 0건이라 "컨텍스트
+  소실 탐지"가 아니다(`docs/FAILED_RETRY_PREREG.md` §9).
+- Claude Code 는 제외: 같은 규칙이 거기선 거의 셸 명령 연속 실패를 센다(39건 중 37건이
+  `Bash`/`PowerShell`, 입력이 같은 건 1건). TRAIL 결과가 그 사건의 근거가 되지 않는다
+  (`docs/FAILED_RETRY_DETECTOR_PREREG.md` §0).
+
+### 공개 수치 — ✅ 안 움직인다
+
+Claude Code 리포트 35개(trace-commons 28 · 인용 트레이스 · 하위 에이전트 세션 6)가 `main`
+과 같고, Corpus A 는 공개 방법으로 0.8449 / 0.9916 비트 동일. TRAIL 147개 리포트는 새 키
+외에 같고 낭비 달러 변화 0(같은 문서 §8).
+
 ## 0.5.21 — 2026-10-19 · **제출은 세션을 하위 에이전트 파일과 함께 보낸다**
 
 0.5.19 부터 로컬 `analyze` 는 하위 에이전트 파일까지 읽었지만, `boxdawn submit` 은
