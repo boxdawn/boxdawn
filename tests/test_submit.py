@@ -234,6 +234,60 @@ def test_dry_run_sends_nothing(tmp_path, monkeypatch):
     assert "would submit 1 session" in lines[0]
 
 
+# ── sub-agent bundle (SUBAGENT_BUNDLE_UPLOAD_PREREG §3, §8.2) ───────────────
+
+def _bundle(tmp_path):
+    top = _session(tmp_path / "proj" / "sess.jsonl", NOW - timedelta(hours=9))
+    sub_dir = top.with_suffix("") / "subagents"
+    _session(sub_dir / "agent-b.jsonl", NOW - timedelta(hours=9))
+    _session(sub_dir / "agent-a.jsonl", NOW - timedelta(hours=9), lines=5)
+    return top, sub_dir
+
+
+def test_the_body_carries_the_session_then_its_subagents_in_name_order(tmp_path):
+    top, sub_dir = _bundle(tmp_path)
+    boundary, body = submit._multipart(top)
+    parts = body.split(f"--{boundary}".encode())
+    assert b'name="file"; filename="sess.jsonl"' in parts[1]
+    assert b'name="subagent"; filename="agent-a.jsonl"' in parts[2]
+    assert b'name="subagent"; filename="agent-b.jsonl"' in parts[3]
+    assert parts[2].endswith((sub_dir / "agent-a.jsonl").read_bytes() + b"\r\n")
+    assert parts[-1] == b"--\r\n"
+
+
+def test_without_subagents_the_body_is_the_one_it_always_was(tmp_path):
+    top = _session(tmp_path / "s.jsonl", NOW - timedelta(hours=9))
+    boundary, body = submit._multipart(top)
+    expected = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="file"; filename="s.jsonl"\r\n'
+        f"Content-Type: application/octet-stream\r\n\r\n"
+    ).encode() + top.read_bytes() + f"\r\n--{boundary}--\r\n".encode()
+    assert body == expected
+
+
+def test_the_size_that_is_refused_is_the_bundle(tmp_path):
+    top, sub_dir = _bundle(tmp_path)
+    total = sum(p.stat().st_size for p in (top, *sub_dir.glob("*.jsonl")))
+    assert submit.bundle_size(top) == total
+    # Under the ceiling alone, over it with its sub-agents.
+    assert submit._refused_for_size(top, {"refused_bytes": 1}, limit=total)
+    assert not submit._refused_for_size(top, {"refused_bytes": 1}, limit=total + 1)
+
+
+def test_dry_run_lists_what_would_be_sent(tmp_path, monkeypatch):
+    _bundle(tmp_path)
+    _no_network(monkeypatch)
+    lines = []
+
+    submit.run(root=tmp_path, dry_run=True, now=NOW,
+               ledger_path=tmp_path / "l.json", out=lines.append)
+
+    listed = [line.strip().split()[1] for line in lines if line.strip().startswith("+")]
+    assert listed == ["agent-a.jsonl", "agent-b.jsonl"]
+    assert "would submit 1 session" in lines[0]
+
+
 def test_a_key_that_is_not_a_submission_key_is_refused_before_upload(tmp_path, monkeypatch):
     _session(tmp_path / "a.jsonl", NOW - timedelta(hours=9))
     calls = _no_network(monkeypatch)

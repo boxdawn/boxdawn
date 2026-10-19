@@ -235,3 +235,29 @@ anonymous, so nothing was stored. Scripts uncommitted.
 
 Not measured here: P6 and P8 (client, stage (c)), and P7 (shipped in 0.5.20,
 §9.1). The deployed server is not measured until (a) is deployed.
+
+## 11. Results — stage (c), the client (2026-10-18)
+
+Code `ced9df7` on `feat/submit-subagent-bundle`. **Not released**: the release
+waits for the web to confirm its copy is live (§8.2 order). Scripts
+uncommitted (`field_test/diagnostics/_submit_bundle_client_2026_10_18/`).
+
+| | Prediction | Result |
+|---|---|---|
+| P6 | Without `subagents/`, the body is today's, boundary aside | ✅ 6/6 sha256-equal with the boundary replaced, measured before and after the change (cited trace and five trace-commons sessions). A test asserts the bytes |
+| P8 | Dry-run lists the file set the body carries | ✅ 6/6 local sessions: `file` then each sub-agent part, in the order `subagent_files` gives. A test runs `run(dry_run=True)` and reads the `+ agent-…` lines |
+
+**End to end against the live server** (stage (a), `ba0d168`, anonymous, not
+stored): the body `_multipart` builds, sent as is, gave $0.00914996 for
+`6f45b92c` and $0.01291494 for `86d2d89f`, equal to local `boxdawn analyze`
+on each. So FastAPI parses the hand-built multipart with more than one part.
+
+**A first P6 run was void.** The patch script stopped on a string it could
+not match and wrote nothing. The P6 check then compared the old code with
+itself and printed 6/6. The run reported above came after the patch was
+applied and the diff was read.
+
+**Known limit, as frozen.** Every `subagents/*.jsonl` file is sent. A file
+whose name does not match the server's `agent-<id>.jsonl` would make the
+whole session 422, and the ledger would retry it on every sweep. Every
+sub-agent file observed is named that way (6/6 local). Not handled here.

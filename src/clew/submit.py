@@ -181,6 +181,29 @@ def server_limit(endpoint: str = DEFAULT_ENDPOINT, timeout: float = 10.0) -> int
         return None
 
 
+def subagent_files(path: Path) -> list[Path]:
+    """The session's sub-agent transcripts, sent in the same request.
+
+    The set the adapter and the budget guard read: `<session>/subagents/*.jsonl`
+    (Sub-agent Bundle Upload prereg §1). Sent alone, each would replace its
+    parent's row on the server (R3a); sent with it, the server analyzes them
+    together, as `boxdawn analyze` does locally.
+    """
+    sub_dir = path.with_suffix("") / "subagents"
+    if not sub_dir.is_dir():
+        return []
+    return sorted(sub_dir.glob("*.jsonl"))
+
+
+def bundle_size(path: Path) -> int:
+    """Bytes in the request for this session: the file and its sub-agent files.
+
+    The server's ceiling is on that sum (prereg §2.2), so every size this
+    module compares or records is this one.
+    """
+    return path.stat().st_size + sum(p.stat().st_size for p in subagent_files(path))
+
+
 def _refused_for_size(path: Path, entry: object, limit: int | None = None) -> bool:
     """True when the server refused this file for its size and it has not shrunk.
 
@@ -205,7 +228,7 @@ def _refused_for_size(path: Path, entry: object, limit: int | None = None) -> bo
     if not refused:
         return False
     try:
-        size = path.stat().st_size
+        size = bundle_size(path)
     except OSError:
         return False
     if limit is not None:
@@ -477,14 +500,22 @@ def key_source() -> str | None:
 # ── submission ─────────────────────────────────────────────────────────────
 
 def _multipart(path: Path) -> tuple[str, bytes]:
+    """The request body: the session as `file`, then one `subagent` part per
+    sub-agent file (prereg §1). Without sub-agents it is the body this function
+    always built."""
     boundary = "----boxdawn" + uuid.uuid4().hex
-    head = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="file"; filename="{path.name}"\r\n'
-        f"Content-Type: application/octet-stream\r\n\r\n"
-    ).encode("utf-8")
-    tail = f"\r\n--{boundary}--\r\n".encode("utf-8")
-    return boundary, head + path.read_bytes() + tail
+
+    def part(name: str, file: Path) -> bytes:
+        head = (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{name}"; filename="{file.name}"\r\n'
+            f"Content-Type: application/octet-stream\r\n\r\n"
+        ).encode("utf-8")
+        return head + file.read_bytes() + b"\r\n"
+
+    body = part("file", path) + b"".join(part("subagent", f) for f in subagent_files(path))
+    tail = f"--{boundary}--\r\n".encode("utf-8")
+    return boundary, body + tail
 
 
 def _failure_detail(exc: urllib.error.HTTPError) -> dict:
@@ -543,7 +574,7 @@ def submit_file(path: Path, key: str, endpoint: str = DEFAULT_ENDPOINT,
             # here: it belongs to the server, and a client holding its own copy
             # disagrees with it the moment either one moves.
             try:
-                refusal["refused_bytes"] = path.stat().st_size
+                refusal["refused_bytes"] = bundle_size(path)
             except OSError:
                 pass
         return refusal
@@ -632,7 +663,7 @@ def poll_status(call_id: str, endpoint: str = DEFAULT_ENDPOINT,
 # ── the run ────────────────────────────────────────────────────────────────
 
 def _summary(paths: list[Path]) -> str:
-    total = sum(p.stat().st_size for p in paths)
+    total = sum(bundle_size(p) for p in paths)
     return f"{len(paths)} session(s), {total / 1024 / 1024:.1f} MB"
 
 
@@ -730,8 +761,12 @@ def run(root: Path = DEFAULT_ROOT,
         for path in queued:
             last = last_activity(path)
             age = (now - last).total_seconds() / 3600 if last else 0
-            out(f"  {path.name}  {path.stat().st_size / 1024:.0f} KB  "
+            subs = subagent_files(path)
+            out(f"  {path.name}  {bundle_size(path) / 1024:.0f} KB  "
                 f"idle {age:.1f}h")
+            # What is listed is what is sent (prereg §8.2).
+            for sub in subs:
+                out(f"    + {sub.name}  {sub.stat().st_size / 1024:.0f} KB")
         return 0
 
     explicit_key = key
