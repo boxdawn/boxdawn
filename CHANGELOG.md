@@ -2,6 +2,35 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.21 — 2026-10-19 · **제출은 세션을 하위 에이전트 파일과 함께 보낸다**
+
+0.5.19 부터 로컬 `analyze` 는 하위 에이전트 파일까지 읽었지만, `boxdawn submit` 은
+세션 파일만 보냈다. 그래서 하위 에이전트가 있는 세션의 클라우드 리포트는 부모 비용만
+셌다. 이 릴리스는 클라이언트를 고친다. 서버는 `subagent` 파트를 이미 받고 있다
+(사전등록 `docs/SUBAGENT_BUNDLE_UPLOAD_PREREG.md` 단계 (a), 라이브).
+
+### 바뀐 것 (`#299`, `boxdawn submit` 만)
+
+- 요청 본문: `file` 파트 뒤에 `<session>/subagents/*.jsonl` 하나마다 `subagent` 파트를
+  붙인다. 하위 폴더가 없는 세션의 본문은 이전과 바이트가 같다(boundary 제외).
+- 크기: 거부 판정 · `refused_bytes` · 실행 요약이 모두 **묶음 합계**를 쓴다. 서버 상한이
+  합계에 걸리기 때문이다. 🔴 부모만으로는 상한 아래인데 하위 파일을 합하면 넘는 세션은
+  이제 세션 전체가 413 으로 거부된다(이 PC 의 79세션 중 0, 가장 큰 묶음 12.7 MB).
+- `--dry-run`: 세션 아래에 보낼 하위 파일을 `+ agent-….jsonl` 로 하나씩 보여준다.
+
+### 확인한 것 (사전등록 §11)
+
+- P6 하위 폴더 없는 세션의 본문 불변 ✅ 6/6 · P8 dry-run 목록 = 보내는 파일 ✅ 6/6.
+- 라이브 서버에 클라이언트가 만든 본문을 그대로 보냄: 2/2 세션이 로컬 `analyze` 와
+  같은 금액($0.00914996 · $0.01291494).
+- 알려진 한계: 이름이 `agent-<id>.jsonl` 이 아닌 하위 파일이 있으면 세션 전체가 422
+  (관측 6/6 전부 이 이름).
+
+### 공개 수치 — ✅ 안 움직인다
+
+분석 경로(`analyze`, 탐지기, 가격)는 바뀌지 않았다. 바뀐 코드는 `src/clew/submit.py`
+뿐이다.
+
 ## 0.5.20 — 2026-10-18 · **하위 에이전트의 지시문은 사용자의 말이 아니다**
 
 0.5.19 는 하위 에이전트 호출을 `llm_calls` 에 붙였다(`#292`). 비용 합계는 그래야
