@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from clew.cost.amplification import AmplificationEstimate
 from clew.detect.cascade import CascadeResult
 from clew.detect.context_resend import ContextResendResult
+from clew.detect.failed_retry import find_failed_retries
 from clew.detect.llm_judge import LLMJudgeResult
 from clew.detect.redundant_read import RedundantReadResult
 from clew.metrics.waste_rate import DETECTOR_ORDER, WasteRateMetric
@@ -297,6 +298,7 @@ def render_json(
     enrichment = enrich(trace, details, user_tools)
     cov = coverage_stats(trace, enrichment.enriched, user_tools)
     id_bridge = scan_id_bridge_candidates(trace, user_tools)
+    failed_retries = find_failed_retries(trace)
     # Cost Attribution Completion prereg §5.3 — top-level cost_summary block.
     cost_summary = build_cost_summary(
         trace, cr, context_resend, redundant_read, llm_judge,
@@ -457,5 +459,13 @@ def render_json(
             "no state-change verdict is rendered."
         ),
     }
+
+    # PREREG docs/FAILED_RETRY_DETECTOR_PREREG.md §3: present only when
+    # non-empty, so reports without events are byte-identical.
+    if failed_retries:
+        report["failed_retries"] = [
+            {"tool": b.agent_or_node_id, "failed_span_id": a.span_id, "retry_span_id": b.span_id}
+            for a, b in failed_retries
+        ]
 
     return json.dumps(report, ensure_ascii=False, indent=2)

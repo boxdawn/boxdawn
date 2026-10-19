@@ -79,11 +79,13 @@ def test_dod_detect_and_report_modules_match_stage3_scope():
     detect_dir = ROOT / "src" / "clew" / "detect"
     report_dir = ROOT / "src" / "clew" / "report"
     detect_files = sorted(p.name for p in detect_dir.glob("*.py"))
-    # context_resend.py + redundant_read.py added per their respective preregs
+    # context_resend.py + redundant_read.py added per their respective preregs;
+    # failed_retry.py per FAILED_RETRY_DETECTOR_PREREG.md §2
     assert detect_files == [
         "__init__.py",
         "cascade.py",
         "context_resend.py",
+        "failed_retry.py",
         "redundant_read.py",
         "semantic.py",
         "structural.py",

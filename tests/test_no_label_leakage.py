@@ -106,13 +106,15 @@ def test_runtime_no_label_file_open():
 # ----------------------------------------------------------------------
 
 def test_detect_directory_has_expected_modules():
-    """src/clew/detect/ modules — stage-2 four plus context_resend (prereg landed §5)."""
+    """src/clew/detect/ modules — stage-2 four plus context_resend (prereg landed §5),
+    redundant_read, and failed_retry (FAILED_RETRY_DETECTOR_PREREG.md §2)."""
     detect_dir = SRC_CLEW / "detect"
     py_files = sorted(p.name for p in detect_dir.glob("*.py"))
     expected = [
         "__init__.py",
         "cascade.py",
         "context_resend.py",
+        "failed_retry.py",
         "redundant_read.py",
         "semantic.py",
         "structural.py",
