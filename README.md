@@ -464,7 +464,7 @@ boxdawn analyze path/to/trace.jsonl --out report.md
 - `--out` writes Markdown; `--json` writes structured output; `--no-snippets` omits output excerpts.
 - Exit `0` whether or not waste is found; `1` on missing file, schema error, or missing detect dependencies.
 
-Your Claude Code transcripts are at `~/.claude/projects/<slug>/<uuid>.jsonl`. Sub-agent traces sit one level deeper, in `<uuid>/subagents/agent-*.jsonl`. Since `0.5.19`, analyzing `<uuid>.jsonl` also reads those files, so the report's cost includes what the sub-agents spent, the same total the budget guard uses. Their tool calls are not yet checked for repeats. `boxdawn submit` does not send a sub-agent file on its own: it carries its parent's session id, and the server would store it in place of the parent. So a cloud report for a session with sub-agents counts the parent alone.
+Your Claude Code transcripts are at `~/.claude/projects/<slug>/<uuid>.jsonl`. Sub-agent traces sit one level deeper, in `<uuid>/subagents/agent-*.jsonl`. Since `0.5.19`, analyzing `<uuid>.jsonl` also reads those files, so the report's cost includes what the sub-agents spent, the same total the budget guard uses. Their tool calls are not yet checked for repeats. Since `0.5.21`, `boxdawn submit` sends a session's sub-agent files in the same request as the session, so the cloud report counts them too, as `analyze` does. The upload size limit applies to the session and its sub-agent files together, and `--dry-run` lists each sub-agent file under its session. A sub-agent file is never sent on its own: it carries its parent's session id, and the server would store it in place of the parent.
 
 ### Sending sessions automatically
 
