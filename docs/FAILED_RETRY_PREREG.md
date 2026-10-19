@@ -118,3 +118,50 @@ failure. A miss can be an unlabelled true event. So the precision below is a
 
 Diagnostics stay uncommitted. No TRAIL text is committed (no-redistribution
 gate).
+
+## 9. Results (2026-10-19)
+
+Run on `main` at `caaa837`, after this document merged. Scorer and event list
+uncommitted (scratchpad `ctxloss/score_failed_retry.py`). Every event's `Step`
+chain held exactly one LLM span (94 / 94), as §2 stated.
+
+| | Matched / events | Share | 95% CI (Clopper–Pearson) |
+|---|---:|---:|---|
+| P1 events reproduce | 94 · 20 non-`PageDownTool` · 13 traces | ✅ | |
+| **M1** non-`PageDownTool`, any category | **9 / 20** | **0.45** | 0.2306 – 0.6847 |
+| M2 all events | 60 / 94 | 0.6383 | 0.5327 – 0.7349 |
+| M2 `PageDownTool` | 51 / 74 | 0.6892 | 0.5710 – 0.7917 |
+| M3 non-`PageDownTool`, context categories | **0 / 20** | 0.0000 | 0.0000 – 0.1684 |
+| M3 all events, context categories | 6 / 94 | 0.0638 | 0.0238 – 0.1338 |
+| M4 L-pool records covered | 5 / 13 | | |
+| M5 non-`PageDownTool` traces with a match | 7 / 13 | | |
+
+**Gate (§5): M1 = 0.45 ≥ 0.40, 9 ≥ 8. ✅ Passes.** 🔴 The interval's lower
+bound is 0.2306, under the bar. The pass rests on 9 of 20 events.
+
+**🔴 What the matches are labelled as.** Not as context loss. Over the 9
+matched non-`PageDownTool` events, the categories on the matched spans are
+`Resource Abuse` 4, `Formatting` 4, and one each of `Tool-related`,
+`Environment Setup`, `Poor Information Retrieval` and `Incorrect Problem
+Identification` (an event can carry more than one). This breakdown was not
+pre-registered. It is reported because M3 = 0 / 20 needs it read.
+
+So the rule picks out calls people mark as mistakes, which is what the gate
+asked. It does **not** pick out what they call context loss: the six
+context-category matches are all `PageDownTool`.
+
+By tool, non-`PageDownTool`: `TextInspectorTool` 4 of 13 matched,
+`ArchiveSearchTool` 3 / 3, `SearchInformationTool` 1 / 3, `SimpleTool` 1 / 1.
+
+### What may be said
+
+- *"On TRAIL gaia, 9 of 20 repeated same-tool failures (outside one harness
+  defect) carry a human error label (95% CI 0.23–0.68)."*
+- 🔴 Not: that the rule detects context loss (M3 0 / 20), any rate for
+  Claude Code (§8: 9 events on one machine), or any dollar figure.
+
+### Next (per §5)
+
+A detector pre-registration. It must decide, given this section, what the
+finding is called: the labels support "a failed call retried into the same
+failure", not "context loss".
