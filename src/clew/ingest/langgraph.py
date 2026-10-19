@@ -66,6 +66,18 @@ def _kind_of(attrs: dict[str, Any]) -> SpanKind:
     return "chain"
 
 
+def _is_error_status(span: Any) -> bool:
+    """True when the span's status is an error (Failed Retry Detector prereg §1).
+
+    A live `ReadableSpan` carries `StatusCode.ERROR`; the file shims carry the
+    string the file holds ("ERROR" in Format A, "Error" in Format C).
+    """
+    code = getattr(getattr(span, "status", None), "status_code", None)
+    if code is None:
+        return False
+    return str(getattr(code, "name", code)).upper() == "ERROR"
+
+
 def _agent_or_node_id_of(
     span_kind: SpanKind, span_name: str, attrs: dict[str, Any]
 ) -> str:
@@ -205,6 +217,9 @@ def otel_spans_to_trace(
     # time, keyed by span_id. Consumed by preprocess (collapse_llm_spans) to build
     # the final trace.metadata["llm_calls"] list before LLM spans are removed.
     llm_extras: dict[str, dict[str, Any]] = {}
+    # Failed Retry Detector prereg §1: tool spans whose status is an error,
+    # under the key and meaning the Claude Code adapter uses for `is_error`.
+    error_span_ids: list[str] = []
 
     for s in spans:
         attrs: dict[str, Any] = dict(s.attributes or {})
@@ -222,6 +237,9 @@ def otel_spans_to_trace(
             cost_rate = float(cost_table[model])
 
         span_id_hex = _hex_span(s.context.span_id)
+
+        if span_kind == "tool" and _is_error_status(s):
+            error_span_ids.append(span_id_hex)
 
         if span_kind == "llm":
             input_cost_rate: float | None = None
@@ -271,6 +289,8 @@ def otel_spans_to_trace(
     metadata: dict[str, Any] = {"source": source_tag, "schema_version": "1.0"}
     if llm_extras:
         metadata["_pending_llm_extras"] = llm_extras
+    if error_span_ids:
+        metadata["error_span_ids"] = error_span_ids
 
     return Trace(
         trace_id=trace_id_hex,

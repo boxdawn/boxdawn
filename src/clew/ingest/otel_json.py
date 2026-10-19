@@ -42,6 +42,16 @@ class _Parent:
         self.span_id = span_id
 
 
+class _Status:
+    """`ReadableSpan.status` stand-in: `.status_code` holds the file's string
+    ("ERROR" in Format A, "Error" in Format C). Failed Retry Detector prereg §1."""
+
+    __slots__ = ("status_code",)
+
+    def __init__(self, status_code: Any) -> None:
+        self.status_code = status_code
+
+
 def _iso_to_ns(ts: str) -> int:
     """ISO datetime string -> nanoseconds int (compatible with ReadableSpan.start_time)."""
     dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
@@ -57,9 +67,10 @@ class _SdkJsonSpan:
       .name (str)
       .start_time / .end_time (int nanoseconds)
       .attributes (dict or None)
+      .status (.status_code str or None)
     """
 
-    __slots__ = ("context", "parent", "name", "start_time", "end_time", "attributes")
+    __slots__ = ("context", "parent", "name", "start_time", "end_time", "attributes", "status")
 
     def __init__(self, raw: dict[str, Any]) -> None:
         ctx = raw["context"]
@@ -73,6 +84,7 @@ class _SdkJsonSpan:
         self.start_time: int = _iso_to_ns(raw["start_time"])
         self.end_time: int = _iso_to_ns(raw["end_time"])
         self.attributes: dict[str, Any] = raw.get("attributes") or {}
+        self.status = _Status((raw.get("status") or {}).get("status_code"))
 
 
 def _parse_sdk_json(text: str) -> list[_SdkJsonSpan]:
@@ -177,9 +189,10 @@ class _OISpan:
       .name (str)
       .start_time / .end_time (int nanoseconds)
       .attributes (dict) - span_attributes as-is (token_count is int-converted by _token_count_of)
+      .status (.status_code str or None)
     """
 
-    __slots__ = ("context", "parent", "name", "start_time", "end_time", "attributes")
+    __slots__ = ("context", "parent", "name", "start_time", "end_time", "attributes", "status")
 
     def __init__(self, raw: dict[str, Any], parent_int: int | None) -> None:
         self.context = _Ctx(
@@ -192,6 +205,7 @@ class _OISpan:
         self.start_time: int = start_ns
         self.end_time: int = start_ns + _iso_duration_to_ns(raw.get("duration", "PT0S"))
         self.attributes: dict[str, Any] = raw.get("span_attributes") or {}
+        self.status = _Status(raw.get("status_code"))
 
 
 def _flatten_oi(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:

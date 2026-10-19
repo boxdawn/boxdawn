@@ -126,3 +126,37 @@ OpenTelemetry traces both start to apply. §4 P4 measures it.
   detector sees status, not text.
 - **Context loss.** This detector does not detect it (§3).
 - **Dollars.** None attached.
+
+## 8. Results (2026-10-19)
+
+Code `d5f75af` on `feat/failed-retry`. Comparisons are against `main` at
+`27c7d39` in a separate worktree, `PYTHONHASHSEED=0`, with `analyzed`
+removed from each JSON report. Scripts uncommitted (scratchpad).
+
+| | Prediction | Result |
+|---|---|---|
+| P1 | TRAIL through `ingest_from_openinference_json` + `find_failed_retries`: gaia 94 · `page_down` 74 · others 20 over 13 traces · swe_bench 0 | ✅ 94 · 74 · 20 · 13 · 0. Through the CLI as well: 94 events in the `failed_retries` key over 30 traces |
+| P2 | Claude Code reports unchanged | ✅ 35 / 35 equal (trace-commons 28, cited trace, 6 local sessions with sub-agents). No report carries `failed_retries` |
+| P3 | Corpus A `0.8449` / `0.9916` | ✅ by the public-figure method (`waste_rate_metric`, 23 priced sessions): `0.8449333451365042` / `0.991595182355781` / `sdr@10 0.9643` on `main` and on the branch, bit-identical |
+| P4 | Side effect on TRAIL: not predicted | **0.** 147 reports equal to `main` apart from the new key. Waste pairs skipped for an error span: 0 on `main`, 0 on the branch. `total_waste_cost` change: 0 on every trace |
+| P5 | Unit tests | ✅ 7 / 7 (`tests/test_failed_retry.py`): Format A, Format C, live `ReadableSpan`, a different tool, OK status, Claude Code source, report shape |
+
+Suite: 1,212 passed, 1 xfailed (pre-existing). Two stage guards listed the
+`detect/` modules by name (`test_dod.py`, `test_no_label_leakage.py`); each
+gained `failed_retry.py` with a pointer to §2, as `context_resend` and
+`redundant_read` did. The leakage checks themselves are unchanged.
+
+**Found, not caused here.**
+
+- TRAIL swe_bench row 11 fails ingest with `duplicate span_id
+  'b14646a5fcac02fd'` on `main` and on the branch alike. 147 of 148 traces
+  are therefore compared, not 148.
+- On the 28 trace-commons sessions, the CLI's JSON reports price all 28
+  (`union_wr_cost` aggregate 0.8986), while the public-figure method prices 23
+  (0.8449). Same on `main`. The cause is not examined here.
+
+**A void comparison, redone.** The first main-vs-branch ingest comparison
+imported a diagnostics module that prepends the repo's `src` to `sys.path`,
+so both runs used the branch. Importing `clew` first fixed it; every
+comparison above was made that way, and each run printed the `clew` path
+it loaded.

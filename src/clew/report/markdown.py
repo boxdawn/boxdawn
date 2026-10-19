@@ -8,10 +8,11 @@ from typing import TYPE_CHECKING
 from clew.cost.amplification import AmplificationEstimate, AmplificationEvent
 from clew.detect.cascade import CascadeResult
 from clew.detect.context_resend import ContextResendResult
+from clew.detect.failed_retry import find_failed_retries
 from clew.detect.llm_judge import LLMJudgeResult
 from clew.detect.redundant_read import RedundantReadResult
 from clew.metrics.waste_rate import WasteRateMetric
-from clew.model import Trace
+from clew.model import Span, Trace
 from clew.report._enrich import (
     EnrichedDetail,
     IdBridgeCandidate,
@@ -229,6 +230,27 @@ _ID_BRIDGE_VERDICT_NO_ID = (
     "This tool's response contains no entity ID; whether a second entity was "
     "created cannot be determined from the trace."
 )
+
+
+# ─── PREREG docs/FAILED_RETRY_DETECTOR_PREREG.md §3 (frozen) ────────────────
+_FAILED_RETRY_HEADER = "## Failed retries"
+_FAILED_RETRY_INTRO = (
+    "A tool call failed, and the next call to the same tool failed again. "
+    "Each row is the second call. These are not counted as waste and carry "
+    "no cost."
+)
+
+
+def _render_failed_retry_section(pairs: list[tuple[Span, Span]]) -> list[str]:
+    """Failed retries section (prereg §3). Rendered only when there are events."""
+    if not pairs:
+        return []
+    lines = [_FAILED_RETRY_HEADER, "", _FAILED_RETRY_INTRO, "",
+             "| tool | failed call | retry |", "|---|---|---|"]
+    for a, b in pairs:
+        lines.append(f"| {b.agent_or_node_id} | `{a.span_id}` | `{b.span_id}` |")
+    lines.append("")
+    return lines
 
 
 _CATEGORY_NOTE = (
@@ -837,6 +859,7 @@ def render_markdown(
     enrichment = enrich(trace, details, user_tools)
     cov = coverage_stats(trace, enrichment.enriched, user_tools)
     id_bridge = scan_id_bridge_candidates(trace, user_tools)
+    failed_retries = find_failed_retries(trace)
 
     if not cr.wasteful:
         lines.append("## Result")
@@ -872,6 +895,7 @@ def render_markdown(
         # hidden behind "no waste detected".
         if id_bridge:
             lines.extend(_render_id_bridge_section(id_bridge))
+        lines.extend(_render_failed_retry_section(failed_retries))
         # Context Resend section — same principle as duplicate creation check:
         # visible even in the waste-0 branch. LLM input resend can be present
         # without any tool-side cascade waste.
@@ -1043,6 +1067,7 @@ def render_markdown(
     # PREREG §1.6 decision 2 — position between Wasted Span Details and
     # Possible causes. Reports discovery, not explanation.
     lines.extend(_render_id_bridge_section(id_bridge))
+    lines.extend(_render_failed_retry_section(failed_retries))
 
     # Context Resend section — sibling of the duplicate creation check.
     # Positioned right after the id_bridge section for the same reason: report
