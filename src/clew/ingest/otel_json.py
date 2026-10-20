@@ -258,6 +258,32 @@ def ingest_from_openinference_json(
     if not all_raws:
         raise ValueError(f"{path}: spans 배열이 비어 있음")
 
+    # The same span written twice. TRAIL swe_bench row 11 carries one span
+    # object twice under the same parent, equal field for field; `Trace`
+    # rejects the repeated span_id, so the whole trace failed to ingest. One
+    # span recorded twice is still one span -- keeping both would also count
+    # its tokens twice. Only an exact copy is dropped: two spans that share an
+    # id but differ in content are left in, and `Trace` still rejects them.
+    seen: dict[str, dict[str, Any]] = {}
+    copies: list[str] = []
+    unique_raws: list[dict[str, Any]] = []
+    for r in all_raws:
+        body = {k: v for k, v in r.items() if k != "child_spans"}
+        sid = r.get("span_id")
+        if isinstance(sid, str) and sid in seen and seen[sid] == body:
+            copies.append(sid)
+            continue
+        if isinstance(sid, str):
+            seen.setdefault(sid, body)
+        unique_raws.append(r)
+    if copies:
+        warnings.warn(
+            f"Format C ({path.name}): 같은 스팬이 두 번 기록됨 — 사본 "
+            f"{len(copies)}개 제외: {', '.join(copies)}",
+            stacklevel=2,
+        )
+        all_raws = unique_raws
+
     # Keep only spans with openinference.span.kind - remove Patronus wrapper spans
     oi_raws = [
         r for r in all_raws
