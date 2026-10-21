@@ -234,7 +234,7 @@ Aggregate over the same trace-commons corpus (28 CC sessions, `data/hf_recon/tra
 - By tokens rather than dollars, resent / input over all 28 sessions is 0.9854 (0.9851 before 0.5.23)
 - Pre-registered §7 threshold `≥ 0.20` → **GO** on either basis
 
-Until 0.5.16 the first line read **0.9851** on a no-cache basis: every input token priced at the base rate. The detector has priced by cache tier since 0.5.13, so that basis is retired. The token ratio rounded to the same four digits until 0.5.23 (it is now 0.9854); it is a different quantity. See the [2026-10-15 correction](#correction-2026-10-15--corpus-a-wr_cost-was-09731).
+Until 0.5.16 the first line read **0.9851** on a no-cache basis: every input token priced at the base rate. The detector has priced by cache tier since 0.5.13, so that basis is retired. The token ratio rounded to the same four digits until 0.5.23, which moved it to 0.9854; it is a different quantity. See the [2026-10-15 correction](#correction-2026-10-15--corpus-a-wr_cost-was-09731).
 
 **Caching caveat — the estimate in this paragraph was wrong, and the measurement it asked for now exists.** It read: *"Anthropic `cache_read_input_tokens` bills at ~10% of the input rate. The 98.5% structural resend corresponds to roughly 8-15% of effective billed input cost … requires a v2 cache-tier split to measure directly."* The cache-tier split was built, and on the billed basis the same corpus measures **88.8%** (89.9% before the [2026-10-21 correction](#correction-2026-10-21--corpus-a-wr_cost-was-08986), 84.5% before the [2026-10-19 one](#correction-2026-10-19--corpus-a-wr_cost-was-08449), 97.3% before the [2026-10-15 one](#correction-2026-10-15--corpus-a-wr_cost-was-09731)), not 8-15%.
 
