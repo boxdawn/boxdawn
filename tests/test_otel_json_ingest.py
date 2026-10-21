@@ -555,6 +555,44 @@ def test_a_chain_with_no_output_is_still_skipped(tmp_path):
     assert "empty_node" not in {s.agent_or_node_id for s in trace.spans}
 
 
+def test_a_span_written_twice_ingests_as_one(tmp_path):
+    """TRAIL swe_bench row 11 carries one LLM span object twice under the same
+    parent, equal field for field, and the trace failed to ingest on the
+    repeated span_id. An exact copy is the same span: it is dropped, with a
+    warning, and its tokens are counted once."""
+    root = _oi_raw(_OI_S1, None, "agent", "AGENT", "done")
+    llm = _oi_raw(_OI_S2, _OI_S1, "LiteLLMModel.__call__", "LLM", "answer")
+    llm["span_attributes"]["llm.token_count.prompt"] = 100
+    root["child_spans"] = [llm, json.loads(json.dumps(llm))]
+
+    with pytest.warns(UserWarning, match="사본 1개 제외"):
+        trace = ingest_from_openinference_json(_oi_file(tmp_path, [root]))
+
+    assert [s.span_id for s in trace.spans].count(_OI_S2) <= 1
+    alone = _oi_raw(_OI_S1, None, "agent", "AGENT", "done")
+    alone["child_spans"] = [json.loads(json.dumps(llm))]
+    (tmp_path / "one").mkdir()
+    with _warnings_mod.catch_warnings():
+        _warnings_mod.simplefilter("ignore")
+        single = ingest_from_openinference_json(_oi_file(tmp_path / "one", [alone]))
+    assert trace.model_dump() == single.model_dump()
+
+
+def test_two_different_spans_sharing_an_id_still_fail(tmp_path):
+    """The guard on the change above: only an exact copy is dropped. Two spans
+    that share an id but differ in content are not the same span, and the
+    trace is still rejected."""
+    root = _oi_raw(_OI_S1, None, "agent", "AGENT", "done")
+    first = _oi_raw(_OI_S2, _OI_S1, "LiteLLMModel.__call__", "LLM", "answer one")
+    second = _oi_raw(_OI_S2, _OI_S1, "LiteLLMModel.__call__", "LLM", "answer two")
+    root["child_spans"] = [first, second]
+
+    with pytest.raises(ValueError, match="duplicate span_id"):
+        with _warnings_mod.catch_warnings():
+            _warnings_mod.simplefilter("ignore")
+            ingest_from_openinference_json(_oi_file(tmp_path, [root]))
+
+
 def test_h6_missing_output_value_raises(tmp_path):
     """When only OI spans missing output.value are present → ValueError (H6)."""
     no_out = _oi_raw(_OI_S1, None, "empty_node", "CHAIN", "")
