@@ -14,8 +14,13 @@ embedding.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
+import math
+import re
+import struct
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -114,6 +119,21 @@ def _sha256_hex(text: str) -> str:
 # ── Token share (prereg §4) ──────────────────────────────────────────────────
 
 def _chunk_token_len(text: str, model: str | None) -> int:
+    """Token length of a chunk, for share calculation only (prereg §4).
+
+    A base64 image block in a Claude call is weighted by the visual tokens
+    it is billed, not by the length of its base64 text (pre-registration
+    CC_IMAGE_TOKEN_SHARE_PREREG §1). Every other chunk is `_text_token_len`,
+    unchanged.
+    """
+    if model and "claude" in model.lower():
+        weighted = _image_weighted_len(text, model)
+        if weighted is not None:
+            return weighted
+    return _text_token_len(text, model)
+
+
+def _text_token_len(text: str, model: str | None) -> int:
     """tiktoken length for share calculation only (prereg §4).
 
     Encoding pick (frozen for v1):
@@ -147,6 +167,157 @@ def _chunk_token_len(text: str, model: str | None) -> int:
         return max(1, len(enc.encode(text)))
     except Exception:
         return max(1, len(text) // 4)
+
+
+# ── Image blocks (docs/CC_IMAGE_TOKEN_SHARE_PREREG.md §1) ────────────────────
+
+def _image_weighted_len(text: str, model: str) -> int | None:
+    """§1.1 and §1.6: the chunk's length with each readable image block
+    replaced by its visual tokens, or None when the chunk has none (the
+    caller then counts it as before)."""
+    try:
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    if json.dumps(parsed, sort_keys=True, ensure_ascii=False) != text:
+        return None
+    visual: list[int] = []
+    stripped = _strip_readable_images(parsed, model, visual)
+    if not visual:
+        return None
+    rest = json.dumps(stripped, sort_keys=True, ensure_ascii=False)
+    return _text_token_len(rest, model) + sum(visual)
+
+
+def _strip_readable_images(obj: Any, model: str, visual: list[int]) -> Any:
+    """§1.2 and §1.6: drop each readable base64 image block from its parent
+    list, appending its visual tokens to `visual`."""
+    if isinstance(obj, list):
+        kept = []
+        for x in obj:
+            if isinstance(x, dict) and x.get("type") == "image":
+                source = x.get("source")
+                if isinstance(source, dict) and source.get("type") == "base64":
+                    data = source.get("data")
+                    size = _image_size(data) if isinstance(data, str) else None
+                    if size is not None:
+                        visual.append(_visual_tokens(size[0], size[1], model))
+                        continue
+            kept.append(_strip_readable_images(x, model, visual))
+        return kept
+    if isinstance(obj, dict):
+        return {k: _strip_readable_images(v, model, visual) for k, v in obj.items()}
+    return obj
+
+
+def _image_size(data_b64: str) -> tuple[int, int] | None:
+    """§1.3: (width, height) from the image header, format by magic bytes."""
+    try:
+        head = base64.b64decode(data_b64[: 4 * 16384])
+    except (binascii.Error, ValueError):
+        return None
+    if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR" and len(head) >= 24:
+        return struct.unpack(">II", head[16:24])
+    if head[:6] in (b"GIF87a", b"GIF89a") and len(head) >= 10:
+        return struct.unpack("<HH", head[6:10])
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP" and len(head) >= 30:
+        kind = head[12:16]
+        if kind == b"VP8 " and head[23:26] == b"\x9d\x01\x2a":
+            w, h = struct.unpack("<HH", head[26:30])
+            return w & 0x3FFF, h & 0x3FFF
+        if kind == b"VP8L" and head[20] == 0x2F:
+            bits = int.from_bytes(head[21:25], "little")
+            return (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1
+        if kind == b"VP8X":
+            return (int.from_bytes(head[24:27], "little") + 1,
+                    int.from_bytes(head[27:30], "little") + 1)
+        return None
+    if head[:2] == b"\xff\xd8":
+        return _jpeg_size(data_b64)
+    return None
+
+
+def _jpeg_size(data_b64: str) -> tuple[int, int] | None:
+    """First SOF0-SOF15 marker other than DHT (C4), JPG (C8), DAC (CC)."""
+    try:
+        data = base64.b64decode(data_b64)
+    except (binascii.Error, ValueError):
+        return None
+    i = 2
+    while i + 4 <= len(data):
+        if data[i] != 0xFF:
+            return None
+        marker = data[i + 1]
+        if marker == 0xFF:
+            i += 1
+            continue
+        if marker == 0x01 or 0xD0 <= marker <= 0xD8:
+            i += 2
+            continue
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            if i + 9 > len(data):
+                return None
+            h, w = struct.unpack(">HH", data[i + 5:i + 9])
+            return w, h
+        i += 2 + struct.unpack(">H", data[i + 2:i + 4])[0]
+    return None
+
+
+def _model_version(model: str) -> tuple[int, int] | None:
+    """§1.4: after the first "claude", split on non-alphanumeric runs. Major
+    is the first one-digit token; minor is the next token if it is one or
+    two digits, else 0. So `claude-sonnet-4-20250514` is 4.0."""
+    low = model.lower()
+    at = low.find("claude")
+    if at < 0:
+        return None
+    tokens = re.split(r"[^a-z0-9]+", low[at + len("claude"):])
+    for i, tok in enumerate(tokens):
+        if re.fullmatch(r"\d", tok):
+            nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+            return int(tok), int(nxt) if re.fullmatch(r"\d{1,2}", nxt) else 0
+    return None
+
+
+def _patch_tokens(width: int, height: int) -> int:
+    return math.ceil(width / 28) * math.ceil(height / 28)
+
+
+def _resized_size(width: int, height: int, max_edge: int, max_tokens: int) -> tuple[int, int]:
+    """Anthropic's reference `resized_size` (build-with-claude/vision-coordinates,
+    read 2026-10-21), ported as given."""
+    def fits(w: int, h: int) -> bool:
+        return (math.ceil(w / 28) * 28 <= max_edge
+                and math.ceil(h / 28) * 28 <= max_edge
+                and _patch_tokens(w, h) <= max_tokens)
+
+    if fits(width, height):
+        return (width, height)
+    if height > width:
+        resized_h, resized_w = _resized_size(height, width, max_edge, max_tokens)
+        return (resized_w, resized_h)
+    aspect_ratio = width / height
+    lo, hi = 1, width
+    while lo + 1 < hi:
+        mid = (lo + hi) // 2
+        if fits(mid, max(round(mid / aspect_ratio), 1)):
+            lo = mid
+        else:
+            hi = mid
+    return (lo, max(round(lo / aspect_ratio), 1))
+
+
+def _visual_tokens(width: int, height: int, model: str) -> int:
+    """§1.4 and §1.5: high-resolution tier (2576 px, 4784 tokens) for Claude
+    4.7 and later, standard (1568, 1568) otherwise."""
+    version = _model_version(model)
+    if version is not None and version >= (4, 7):
+        max_edge, max_tokens = 2576, 4784
+    else:
+        max_edge, max_tokens = 1568, 1568
+    return _patch_tokens(*_resized_size(width, height, max_edge, max_tokens))
 
 
 # ── Detector entry point ────────────────────────────────────────────────────

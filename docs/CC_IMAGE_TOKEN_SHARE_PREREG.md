@@ -154,3 +154,98 @@ inside image chunks.
 - OpenAI-format images (`image_url` data URIs). OpenAI bills images by a
   different rule. No such chunk has been counted in our corpora.
 - Images by `url` or `file_id`: no bytes in the trace, so no size to read.
+
+## 6. Results (2026-10-21)
+
+Run on the implementation commit, rebased on `main` at `9e16ba7`,
+`PYTHONHASHSEED=0`, both arms in one process: as-is = `_text_token_len`
+for every chunk, weighted = `_chunk_token_len` as shipped in that commit.
+Scripts are diagnostic and not committed
+(`field_test/diagnostics/_image_weight_results_2026_10_21/`).
+
+### Corpus A
+
+| | Prediction | As-is | Weighted | |
+|---|---|---:|---:|---|
+| baseline | reproduce 308.4824 / 343.2929 | **308.4824 / 343.2929 = 0.8986** | | ✅ |
+| G1 | `union_wr_char` 0.9916, `union_sdr_at_10` 0.9643 bit-identical | 0.9916 · 0.9643 | 0.9916 · 0.9643 | ✅ bit-identical |
+| G2 | sessions with no readable image unchanged | | 21 / 21 `resent_cost` bit-identical, `union_waste_cost` \|Δ\| = 0 | ✅ |
+| G3 | `total_input_cost` bit-identical | | 28 / 28 | ✅ |
+| stop | ≤ 5% of distinct images unreadable | | 0 of 63 | ✅ |
+| **P1** | \|Δ `union_wr_cost`\| < 0.005 | 0.8986 | **304.7158 / 343.2929 = 0.8876** | ❌ **Δ −0.0110** |
+
+**P1 missed.** The figure moved by −0.0110, more than twice the bound. The
+bound was a judgement, labelled as one in §2, and it was wrong.
+
+Where the move comes from. 7 of the 28 sessions carry readable images
+(10,134 image occurrences across their calls, 63 distinct images). 5 fall
+and 2 rise:
+
+| session | images (occurrences) | input cost | Δ per-session `wr_cost` | Δ waste $ |
+|---|---:|---:|---:|---:|
+| `c84c0ad3` | 152 | $3.99 | −0.0622 | −0.2481 |
+| `d4c4d47d` | 1,223 | $5.52 | −0.0610 | −0.3367 |
+| `da5d32d6` | 7,979 | $118.44 | −0.0293 | −3.4691 |
+| `7563bddf` | 165 | $14.07 | −0.0062 | −0.0866 |
+| `17c2cf98` | 169 | $8.56 | −0.0027 | −0.0231 |
+| `09d9abe9` | 190 | $5.48 | +0.0206 | +0.1129 |
+| `860618e1` | 256 | $10.50 | +0.0271 | +0.2840 |
+
+Of the $3.77 net fall, $3.47 is `da5d32d6`, the Opus 4.8 session that is
+34.5% of the denominator. The single-detector ratio
+(`resent_cost / total_input_cost`, README "Context Resend Detector")
+moves from 308.4588 / 343.2929 = 0.8985 to 304.6921 / 343.2929 = **0.8876**.
+
+Not established: why `da5d32d6` falls rather than rises. The 10-18 arm that
+removed images and signatures together moved the aggregate up; this arm
+weights images only, on the high tier, and moves it down. The two arms
+differ in the denominator (23 vs 28 sessions), in whether signatures moved,
+and in what an image weighs, so they do not explain each other.
+
+### Overflow census (P2)
+
+The census of the causes document, re-run on the same code. "Over" means a
+call's messages, counted one by one, sum to more than its billed
+`input_tokens`.
+
+| arm | calls over their bill (of 4,354) |
+|---|---:|
+| as-is, nothing removed | **1,557** (reproduces) |
+| as-is, images removed | **847** (reproduces) |
+| as-is, images and signatures removed | **8** (reproduces) |
+| **images weighted (§1), signatures as today** | **848** |
+| images weighted, signatures removed | 8 |
+
+**P2 holds:** 848 ≥ 847. With images weighted, removing signatures leaves
+the same 8 calls as removing both, which are the 8 `<synthetic>` entries.
+Weighting images as billed removes all but one of the 710 image-caused
+overflows. A call's weighted count is never below its image-free count, so
+the one extra call (848 vs 847) is over its bill only once its images'
+visual tokens are added on top of its signatures.
+Signatures are now the only cause of overflow outside `<synthetic>`.
+
+### Corpus B, C and D (P3, G4)
+
+| corpus | claude calls | claude chunks with a readable image block | |
+|---|---:|---:|---|
+| B · Toolathlon (6,780 traces) | 27,365 | **0** | does not move |
+| C · Exgentic (10,056 sessions) | 55,789 (`claude-opus-4-5`) | **0** | does not move |
+| D · MIMO | 0 | 0 | does not move (G4) |
+
+In B, 21,709 calls contain the text `"image`. None is an image content
+block: they are field names (`"images"`, `"image/jpeg"`, `"imageName"`)
+inside escaped JSON in tool outputs. No claude call in B or C has a
+`"type": "image"` block at all.
+
+### Summary
+
+| | |
+|---|---|
+| G1–G4, stop conditions | all hold |
+| P1 | **missed**: Corpus A `union_wr_cost` 0.8986 → **0.8876** (Δ −0.0110 against a bound of 0.005) |
+| P2 | holds (848 ≥ 847) |
+| P3 | B and C have no image blocks; they do not move |
+
+The published Corpus A figure would change in the third decimal if this
+ships. Whether to release, raise the cloud pin and correct the README is
+§4's decision and is not taken here.
