@@ -45,15 +45,15 @@ Ran on 6,780 public benchmark trajectories. One Toolathlon Canvas session (`grok
 ```
 ## Result
 
-- **Waste detection**: no waste detected (wasteful=False).
-- **Duplicate creation check**: 27 candidate pair(s) — 13 with differing entity IDs, 0 with the same entity ID, 14 without extractable entity ID. Detection, not confirmed impact. See section below.
+- **Waste detection (tool cascade)**: no waste detected (wasteful=False).
+- **Duplicate creation check**: 27 candidate pair(s): 13 with differing entity IDs, 0 with the same entity ID, 14 without extractable entity ID. Detection, not confirmed impact. See section below.
 
 - **Tool mapping coverage for this trace**: 11 of 15 tools recognized (73.3%).
 - **Unrecognized tools in this trace (top 4)**: canvas-canvas_get_user_profile, canvas-canvas_health_check, canvas-canvas_list_sub_accounts, emails-download_attachment
 
 ## Duplicate creation check
 
-The waste detector above requires both responses to be byte-identical. That is the right test for reads — a re-read that returns the same content is a redundant call. For creation tools it is reversed: if a document really was created twice, the two responses carry different entity IDs, so the waste detector excludes them by construction. This section scans that excluded pool separately.
+The waste detector above requires both responses to be byte-identical. That is the right test for reads: a re-read that returns the same content is a redundant call. For creation tools it is reversed: if a document really was created twice, the two responses carry different entity IDs, so the waste detector excludes them by construction. This section scans that excluded pool separately.
 
 - **candidates**: 27 pairs total
   - 13 with different entity IDs

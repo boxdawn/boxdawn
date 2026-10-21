@@ -326,7 +326,7 @@ def test_readme_example_has_coverage_banner():
     # v0.4.1: fenced example uses the actual renderer output — includes
     # `## Result` heading and `**Waste detection**:` bold markers.
     m = re.search(
-        r"```\s*\n((?:##\s+)?Result\s*\n.*?\*{0,2}Waste detection\*{0,2}:.*?)```",
+        r"```\s*\n((?:##\s+)?Result\s*\n.*?\*{0,2}Waste detection \(tool cascade\)\*{0,2}:.*?)```",
         readme,
         re.S,
     )
