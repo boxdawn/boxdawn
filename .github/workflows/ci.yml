@@ -7,6 +7,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  bar-check:
+    name: Bar-lowering check (warn only)
+    # Lists the lines in this PR that lower a bar (skip added, assert removed,
+    # threshold changed, guard list shortened) in the job summary. It never
+    # fails: a removal can be right, and a check that blocks invites working
+    # around it. What it asks for is a reason in the PR description.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: List bar-lowering lines
+        run: bash .github/scripts/bar_check.sh "origin/${{ github.base_ref }}...HEAD" | tee -a "$GITHUB_STEP_SUMMARY"
+
   cold-install:
     name: Cold install + run (no HF token, clean machine)
     runs-on: ubuntu-latest
