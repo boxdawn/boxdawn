@@ -20,7 +20,8 @@ All notable, user-visible changes to `boxdawn` (previously published on PyPI as 
 ### 리포트가 바뀌는 범위 — 실측
 
 0.5.22(`d75bb85`) 와 이 릴리스로 Claude Code 리포트 37개(trace-commons 28 · 인용 트레이스 ·
-하위 에이전트가 있는 로컬 세션 8)를 같은 명령으로 만들어 비교했다.
+하위 에이전트가 있는 로컬 세션 8)를 같은 명령으로 만들어 비교했다. 로컬 실행은 10번이었고 그중
+2번은 같은 세션 파일을 두 번 읽어 같은 출력 파일을 덮었다. 비교는 남은 37개 파일이다.
 
 - **30개는 생성 시각 말고 같다.** 인용 트레이스(`agent-race/claude-code.jsonl`) 포함 ⇒ 홈
   **88.7% 는 안 움직인다.**
@@ -44,7 +45,8 @@ All notable, user-visible changes to `boxdawn` (previously published on PyPI as 
 - README 의 단일 탐지기 CI 는 10-19 정정 때 28세션으로 다시 재지 않아 23세션 값 [0.8102, 0.8730]
   이 남아 있었다(점추정 0.8985 를 포함 못 함). 이번 README 정정에서 같이 고친다.
 - Corpus B·C 는 Claude 호출에 이미지 블록이 0개라 움직이지 않는다. D 는 Claude 호출이 없다.
-- 청구보다 많이 재지는 호출 1,557 중 이미지 탓 710 건은 709 건이 해소되어 848 건이 남는다.
+- 청구보다 많이 재지는 호출 1,557 건 가운데, 이미지를 청구대로 재면 848 건이 남는다(이미지 탓
+  710 건 중 709 건 해소).
   남은 초과는 `<synthetic>` 8 을 빼면 전부 서명 탓이다.
 
 ## 0.5.22 — 2026-10-19 · **실패한 도구 호출을 같은 실패로 다시 부른 것을 센다 (OpenTelemetry)**
