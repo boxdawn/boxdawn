@@ -52,8 +52,14 @@ facts only, without touching detection logic or frozen parameters.
   It builds the trace directly, bypasses preprocess, and assigns
   `span_kind="llm"` explicitly (lines 54, 63, 72, 81). The pingpong component
   of the synthetic F1=0.857 evaluation runs exclusively through this path.
-- All three real adapter outputs (CC 6,780 tool spans / Toolathlon 176,270 tool
+- All three real adapter outputs (CC ~~6,780~~ tool spans / Toolathlon 176,270 tool
   spans / RB 1,628 tool spans) show zero firings.
+  *Corrected 2026-10-21:* the CC count of 6,780 has no recorded source. No
+  script or corpus is named for it, it equals the Toolathlon trajectory count,
+  and the 28-session trace-commons list was created a day after this line was
+  written. Re-counted on `main` at `1c5faa4`, those 28 sessions have **4,262**
+  tool spans. The zero holds for any CC corpus regardless: the CC adapter emits
+  only tool spans and pingpong reads only llm spans (CC_TRANSCRIPT §22.3).
 - **Honest labeling**: "implemented ≠ observed". Coding/tool agents are
   dominated by single-agent setups, so an A→B→A→B LLM back-and-forth is
   structurally absent. Once multi-agent traces are available, we will
