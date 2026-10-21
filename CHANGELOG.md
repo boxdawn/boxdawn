@@ -2,6 +2,47 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
+## 0.5.23 — 2026-10-21 · **스크린샷은 청구된 만큼만 무게를 갖는다**
+
+`context_resend` 는 한 호출의 청구 입력을 그 호출의 청크들에 토큰 길이 비례로 나눈다. base64
+이미지가 든 청크는 지금까지 base64 **글자 길이**로 재졌고, 그건 청구와 무관했다. 이제 Claude
+호출의 이미지는 청구되는 시각 토큰(`⌈w′/28⌉ × ⌈h′/28⌉`, Anthropic 참조 리사이즈, 4.7 이후
+모델은 고해상도 등급)으로 무게를 단다. 사전등록 `docs/CC_IMAGE_TOKEN_SHARE_PREREG.md`.
+
+### 바뀐 것
+
+- `#313` 탐지: 위 규칙. 크기를 못 읽는 이미지, Claude 가 아닌 호출, 이미지 없는 청크는
+  이전과 바이트가 같다. thinking 서명은 **그대로** 길이로 센다(청구 크기가 트레이스에 없다).
+- `#308` 수집: OpenInference 파일(Format C)에서 같은 span 이 필드까지 똑같이 두 번 적혀 있으면
+  하나로 받고 경고를 낸다. 이전에는 트레이스 전체가 수집에 실패했다(TRAIL 148 중 1). 내용이
+  다른 같은 id 는 여전히 거부한다.
+
+### 리포트가 바뀌는 범위 — 실측
+
+0.5.22(`d75bb85`) 와 이 릴리스로 Claude Code 리포트 37개(trace-commons 28 · 인용 트레이스 ·
+하위 에이전트가 있는 로컬 세션 8)를 같은 명령으로 만들어 비교했다.
+
+- **30개는 생성 시각 말고 같다.** 인용 트레이스(`agent-race/claude-code.jsonl`) 포함 ⇒ 홈
+  **88.7% 는 안 움직인다.**
+- **바뀐 7개는 이미지가 있는 trace-commons 세션 7개와 정확히 같다.** 재전송 사건 수는 7개 모두
+  그대로이고, 사건별 토큰·달러 배분만 바뀐다. 세션 `union_wr_cost` 는 5개가 내려가고(최대
+  `c84c0ad3` 0.9013→0.8391) 2개가 올라간다(최대 `860618e1` 0.8448→0.8718).
+
+### 공개 수치 — 🔴 Corpus A 가 움직인다
+
+| | 0.5.22 | 0.5.23 |
+|---|---:|---:|
+| Corpus A `union_wr_cost` (28) | 308.4824 / 343.2929 = **0.8986** | 304.7158 / 343.2929 = **0.8876** |
+| 단일 탐지기 `resent_cost / total_input_cost` | 0.8985 (89.9%) | **0.8876 (88.8%)** |
+| 세션별 `wr_cost` p10 / 중앙 / p90 | 0.2648 / 0.7743 / 0.9239 | 0.2648 / 0.7743 / **0.9176** |
+| `union_wr_char` · `union_sdr_at_10` | 0.9916 · 0.9643 | 비트 동일 |
+
+- 사전등록 P1(\|Δ\| < 0.005)은 **빗나갔다**: −0.0110. $3.77 하락 중 $3.47 이 분모의 34.5% 인
+  세션 `da5d32d6` 하나에서 온다.
+- Corpus B·C 는 Claude 호출에 이미지 블록이 0개라 움직이지 않는다. D 는 Claude 호출이 없다.
+- 청구보다 많이 재지는 호출 1,557 중 이미지 탓 710 건은 709 건이 해소되어 848 건이 남는다.
+  남은 초과는 `<synthetic>` 8 을 빼면 전부 서명 탓이다.
+
 ## 0.5.22 — 2026-10-19 · **실패한 도구 호출을 같은 실패로 다시 부른 것을 센다 (OpenTelemetry)**
 
 도구 호출이 실패했고, 바로 다음 호출이 같은 도구인데 또 실패한 경우를 센다. 달러는 붙이지
