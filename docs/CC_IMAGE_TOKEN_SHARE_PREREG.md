@@ -218,8 +218,10 @@ call's messages, counted one by one, sum to more than its billed
 
 **P2 holds:** 848 ≥ 847. With images weighted, removing signatures leaves
 the same 8 calls as removing both, which are the 8 `<synthetic>` entries.
-Weighting images as billed removes every image-caused overflow but one: a
-call whose image visual tokens push it 1 call above the image-free count.
+Weighting images as billed removes all but one of the 710 image-caused
+overflows. A call's weighted count is never below its image-free count, so
+the one extra call (848 vs 847) is over its bill only once its images'
+visual tokens are added on top of its signatures.
 Signatures are now the only cause of overflow outside `<synthetic>`.
 
 ### Corpus B, C and D (P3, G4)
