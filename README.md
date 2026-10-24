@@ -47,6 +47,8 @@ Ran on 6,780 public benchmark trajectories. One Toolathlon Canvas session (`grok
 
 - **Waste detection (tool cascade)**: no waste detected (wasteful=False).
 - **Duplicate creation check**: 27 candidate pair(s): 13 with differing entity IDs, 0 with the same entity ID, 14 without extractable entity ID. Detection, not confirmed impact. See section below.
+- **Context resend**: 1516 resent chunk(s), 840240 of 948052 input tokens (88.6%). See section below.
+- **Waste rate**: 89.8% of input bytes / 88.6% of input cost flagged as waste (union of the 4 waste-rate detectors; see `waste_rate.per_detector`).
 
 - **Tool mapping coverage for this trace**: 11 of 15 tools recognized (73.3%).
 - **Unrecognized tools in this trace (top 4)**: canvas-canvas_get_user_profile, canvas-canvas_health_check, canvas-canvas_list_sub_accounts, emails-download_attachment
@@ -78,7 +80,9 @@ Reproduce:
 ```bash
 pip install boxdawn
 # Toolathlon corpus (CC-BY-4.0): huggingface.co/datasets/hkust-nlp/Toolathlon-Trajectories
-boxdawn analyze grok-4_2.jsonl --out report.md
+# grok-4_2.jsonl holds 106 trajectories and `analyze` reads the first, so take this one out
+python -c "import json,sys; sys.stdout.writelines(l for l in open('grok-4_2.jsonl', encoding='utf-8') if json.loads(l).get('task_name') == 'canvas-art-manager')" > canvas-art-manager.jsonl
+boxdawn analyze canvas-art-manager.jsonl --out report.md
 ```
 
 *(Yes, agents legitimately re-read files. That is why the cascade below has two gates: the structural group only becomes a flag when the state check confirms nothing changed between the two calls, and the tool output is byte-identical.)*
