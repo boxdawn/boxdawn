@@ -1,9 +1,10 @@
-# Thinking Signatures Weighted by the Thinking They Carry — Pre-registration (DRAFT)
+# Thinking Signatures Weighted by the Thinking They Carry — Pre-registration
 
-**Status.** Draft, written 2026-10-21 before any measurement of the effect. Not
-approved: whether to pursue this is 세원님's decision. If it is pursued, this
-text is frozen as written; anything changed later goes in a dated amendment.
-**Engine.** `main` at `655e9b1` (0.5.23 code, unreleased).
+**Status.** Drafted 2026-10-21 before any measurement of the effect; 세원님
+decided on 2026-10-24 to pursue it. From this PR on the text is frozen;
+anything changed later goes in a dated amendment.
+**Engine.** `main` at `3659761` (0.5.23, released). `src/` is unchanged since
+the draft was written at `655e9b1`; only the version number moved.
 
 ## 0. What is known (before this document)
 
