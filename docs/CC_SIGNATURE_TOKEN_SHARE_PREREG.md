@@ -234,12 +234,17 @@ reading them.
 ## 6. Results (2026-10-25)
 
 Code: `9437123` (feat/cc-signature-weight), implementing §1 in
-`_chunk_lengths` (`src/clew/detect/context_resend.py`). Harness: as-is arm =
-the same code with `_keeps_thinking` forced to `False`, so no occurrence
-changes and every length is the 0.5.23 length; weighted arm = the code as
-implemented. Both arms in one process, `PYTHONHASHSEED=0`. Scripts and raw
-outputs: `field_test/diagnostics/_signature_weight_results_2026_10_25/`
-(uncommitted).
+`_chunk_lengths` (`src/clew/detect/context_resend.py`). `PYTHONHASHSEED=0`
+throughout. Scripts and raw outputs:
+`field_test/diagnostics/_signature_weight_results_2026_10_25/` (uncommitted).
+
+Deviation from §2, disclosed: the as-is arm of the figure table, the census
+and G1–G3/G5 is not a 0.5.23 checkout but `9437123` with `_keeps_thinking`
+forced to `False`, so no occurrence changes. Its equivalence to 0.5.23 rests
+on the exact baseline match below and on G4 and G6, which were then run
+against the 0.5.23 module itself: `context_resend.py` from a `29aecb2`
+worktree (`src/` identical to the 0.5.23 release merge `8b4a253`), loaded
+alongside the new one (`g4g6_vs_0523.py`).
 
 **Baseline (as-is arm).** Every value reproduces at the stated tolerance:
 census 848, `union_wr_char` 0.991595182355781, `union_sdr_at_10`
@@ -263,10 +268,10 @@ census 848, `union_wr_char` 0.991595182355781, `union_sdr_at_10`
 | G1 | `union_wr_char`, `union_sdr_at_10` bit-identical |
 | G2 | `total_input_cost` bit-identical in all 28 sessions |
 | G3 | 20 sessions with no signature chunk: `resent_cost` bit-identical 20/20, `union_waste_cost` within 1e-9 20/20 |
-| G4 | 783,990 unchanged occurrences checked one by one, 0 differ |
+| G4 | Against the 0.5.23 module: chunk boundaries identical in every call; 783,990 occurrences that §1.4 does not change checked one by one against 0.5.23 `_chunk_token_len`, 0 differ (103,421 changed occurrences not compared, by design) |
 | G5 | 685/685 source calls match the producing message's usage; 0 message ids whose lines disagree |
-| G6 | Corpus D: 1,017 files, 1,017 ingested, reports bit-identical 1,017/1,017, changed occurrences 0 |
-| G7 | Corpus B: 6,780 trajectories built (336 lines fail to build, skipped as in the public scan), changed occurrences 0, signature chunks 0. Corpus C: 10,056 rows ingested, 0 errors, changed occurrences 0, signature chunks 0 |
+| G6 | Corpus D against the 0.5.23 module: 1,017 files ingested, `find_context_resend` result identical 1,017/1,017. (An earlier run compared the gate-off arm of the new code instead, also 1,017/1,017, changed occurrences 0; that script version was not kept.) Only the context_resend result was compared, not the full report |
+| G7 | Corpus B: 6,780 trajectories built (336 lines fail to build and are skipped, the same per-entry skip as the public scan; their count was not compared with the public scan and they are not covered by G7), changed occurrences 0, signature chunks 0. Corpus C: 10,056 rows ingested, 0 errors, changed occurrences 0, signature chunks 0 |
 
 **Predictions.**
 
@@ -279,9 +284,12 @@ census 848, `union_wr_char` 0.991595182355781, `union_sdr_at_10`
 **Stop conditions.** None fired: signature chunks without an estimate 0 of
 685; `thinking_est = 0` in 1 of 685 (0.15%, under 1%); census 8 (under 200).
 
-**Counts reported under §1.4.** Signature occurrences by call model:
+**Counts reported under §1.4 and §5.** Signature occurrences by call model:
 `claude-opus-4-8` changed 97,162; `claude-sonnet-4-6` changed 6,259;
-`<synthetic>` unchanged 300. Sessions with a signature chunk: 8 of 28.
+`<synthetic>` unchanged 300. First appearance by model: `claude-opus-4-8`
+559, `claude-sonnet-4-6` 123, `<synthetic>` 3 (the 3 left heavy at their
+first appearance, as §1.4 said). Occurrences in parsable models that strip
+earlier thinking: 0. Sessions with a signature chunk: 8 of 28.
 
 **What this does not show.** Per §5: `thinking_est` is an estimate whose
 direction against the bill is not measured; the census reaching its floor
