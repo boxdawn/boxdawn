@@ -230,3 +230,68 @@ reading them.
   exactly; no adapter reads it today and this change does not use it.
 - A source call other than `k − 1` (resumed sessions, compaction, interleaved
   sub-agent calls). G5 checks the link on Corpus A only.
+
+## 6. Results (2026-10-25)
+
+Code: `9437123` (feat/cc-signature-weight), implementing §1 in
+`_chunk_lengths` (`src/clew/detect/context_resend.py`). `PYTHONHASHSEED=0`
+throughout. Scripts and raw outputs:
+`field_test/diagnostics/_signature_weight_results_2026_10_25/` (uncommitted).
+
+Deviation from §2, disclosed: the as-is arm of the figure table, the census
+and G1–G3/G5 is not a 0.5.23 checkout but `9437123` with `_keeps_thinking`
+forced to `False`, so no occurrence changes. Its equivalence to 0.5.23 rests
+on the exact baseline match below and on G4 and G6, which were then run
+against the 0.5.23 module itself: `context_resend.py` from a `29aecb2`
+worktree (`src/` identical to the 0.5.23 release merge `8b4a253`), loaded
+alongside the new one (`g4g6_vs_0523.py`).
+
+**Baseline (as-is arm).** Every value reproduces at the stated tolerance:
+census 848, `union_wr_char` 0.991595182355781, `union_sdr_at_10`
+0.9642857142857143, context_resend sum 304.69214540000644 and denominator
+343.2929203500001 exact; numerator 304.71579418567944 and `union_wr_cost`
+0.8876262110940424 within 1e-9.
+
+| | as-is | weighted |
+|---|---:|---:|
+| `union_wr_cost` | 0.8876262110940424 | **0.8849064543071518** |
+| numerator ($) | 304.71579418567944 | 303.78212093566606 |
+| context_resend alone ($) | 304.69214540000644 | 303.75847214999305 |
+| `union_wr_char` | 0.991595182355781 | 0.991595182355781 |
+| `union_sdr_at_10` | 0.9642857142857143 | 0.9642857142857143 |
+| census (calls over their bill) | 848 | **8** |
+
+**Guards.**
+
+| | result |
+|---|---|
+| G1 | `union_wr_char`, `union_sdr_at_10` bit-identical |
+| G2 | `total_input_cost` bit-identical in all 28 sessions |
+| G3 | 20 sessions with no signature chunk: `resent_cost` bit-identical 20/20, `union_waste_cost` within 1e-9 20/20 |
+| G4 | Against the 0.5.23 module: chunk boundaries identical in every call; 783,990 occurrences that §1.4 does not change checked one by one against 0.5.23 `_chunk_token_len`, 0 differ (103,421 changed occurrences not compared, by design) |
+| G5 | 685/685 source calls match the producing message's usage; 0 message ids whose lines disagree |
+| G6 | Corpus D against the 0.5.23 module: 1,017 files ingested, `find_context_resend` result identical 1,017/1,017. (An earlier run compared the gate-off arm of the new code instead, also 1,017/1,017, changed occurrences 0; that script version was not kept.) Only the context_resend result was compared, not the full report |
+| G7 | Corpus B: 6,780 trajectories built (336 lines fail to build and are skipped, the same per-entry skip as the public scan; their count was not compared with the public scan and they are not covered by G7), changed occurrences 0, signature chunks 0. Corpus C: 10,056 rows ingested, 0 errors, changed occurrences 0, signature chunks 0 |
+
+**Predictions.**
+
+| | predicted | result | |
+|---|---|---|---|
+| P1 | census ≤ 50, floor 8 | 8; all 8 are `<synthetic>` with billed input 0 | **holds** |
+| P2 | `union_wr_cost` falls by < 0.03 | falls by 0.0027197568 | **holds** |
+| P3 | B and C unchanged (G7) | 0 changed occurrences on both | **holds** |
+
+**Stop conditions.** None fired: signature chunks without an estimate 0 of
+685; `thinking_est = 0` in 1 of 685 (0.15%, under 1%); census 8 (under 200).
+
+**Counts reported under §1.4 and §5.** Signature occurrences by call model:
+`claude-opus-4-8` changed 97,162; `claude-sonnet-4-6` changed 6,259;
+`<synthetic>` unchanged 300. First appearance by model: `claude-opus-4-8`
+559, `claude-sonnet-4-6` 123, `<synthetic>` 3 (the 3 left heavy at their
+first appearance, as §1.4 said). Occurrences in parsable models that strip
+earlier thinking: 0. Sessions with a signature chunk: 8 of 28.
+
+**What this does not show.** Per §5: `thinking_est` is an estimate whose
+direction against the bill is not measured; the census reaching its floor
+says the reconstructed input no longer exceeds the bill, not that each
+signature is weighted at its bill.

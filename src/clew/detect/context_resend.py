@@ -499,6 +499,136 @@ def _rate_and_cost_for_call(
     return 0.0, 0.0, None
 
 
+# ── Thinking signatures (docs/CC_SIGNATURE_TOKEN_SHARE_PREREG.md §1) ─────────
+
+def _signature_element(text: str, role: str | None) -> dict[str, Any] | None:
+    """§1.1: the parsed message when the chunk is a signature chunk, else None.
+    Only list elements carry a role, so the whole-input fallback never
+    qualifies."""
+    if role != "assistant":
+        return None
+    try:
+        elem = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(elem, dict) or not isinstance(elem.get("content"), list):
+        return None
+    for b in elem["content"]:
+        if (isinstance(b, dict) and b.get("type") == "thinking"
+                and isinstance(b.get("signature"), str) and b["signature"]):
+            return elem
+    return None
+
+
+def _keeps_thinking(model: str | None) -> bool:
+    """§1.4: Opus 4.5 and models numbered 4.6 and higher keep earlier
+    thinking and bill it as input."""
+    if not model:
+        return False
+    version = _model_version(model)
+    if version is None:
+        return False
+    return version >= (4, 6) or ("opus" in model.lower() and version == (4, 5))
+
+
+def _visible_tokens(elem: dict[str, Any], model: str | None) -> int:
+    """§1.3: text blocks and tool_use name + input, one `_text_token_len`
+    call per term."""
+    total = 0
+    for b in elem["content"]:
+        if not isinstance(b, dict):
+            continue
+        if b.get("type") == "text":
+            if isinstance(b.get("text"), str):
+                total += _text_token_len(b["text"], model)
+        elif b.get("type") == "tool_use":
+            if isinstance(b.get("name"), str):
+                total += _text_token_len(b["name"], model)
+            if "input" in b:
+                total += _text_token_len(
+                    json.dumps(b["input"], sort_keys=True, ensure_ascii=False), model)
+    return total
+
+
+def _thinking_estimate(elem: dict[str, Any], llm_calls: list[dict[str, Any]], p: int) -> int | None:
+    """§1.3: `max(0, output_tokens(p) − visible)`, or None when there is no
+    producing call or its `output_tokens` is missing, non-integer or 0."""
+    if p < 0:
+        return None
+    out = llm_calls[p].get("output_tokens")
+    if not isinstance(out, int) or isinstance(out, bool) or out == 0:
+        return None
+    return max(0, out - _visible_tokens(elem, llm_calls[p].get("model")))
+
+
+def _signature_weighted_len(elem: dict[str, Any], model: str | None, thinking_est: int) -> int:
+    """§1.5: the chunk without the `signature` key of its top-level thinking
+    blocks (images still weighted), plus the estimate."""
+    content = [
+        {k: v for k, v in b.items() if k != "signature"}
+        if isinstance(b, dict) and b.get("type") == "thinking" else b
+        for b in elem["content"]
+    ]
+    stripped = json.dumps({**elem, "content": content}, sort_keys=True, ensure_ascii=False)
+    return _chunk_token_len(stripped, model) + thinking_est
+
+
+@dataclass
+class SignatureChunk:
+    first_call: int
+    source_call: int
+    thinking_estimate: int | None
+
+
+@dataclass
+class ChunkLengths:
+    per_call: list[list[tuple[str, str | None, int]]]
+    occurrence_count: dict[str, int]
+    signatures: dict[str, SignatureChunk]
+    # (call model, changed under §1.4) -> signature chunk occurrences
+    signature_occurrences: dict[tuple[str | None, bool], int]
+
+
+def _chunk_lengths(llm_calls: list[dict[str, Any]]) -> ChunkLengths:
+    """Each call's chunks with their share weights (prereg §2, §4), signature
+    chunks weighted per CC_SIGNATURE_TOKEN_SHARE_PREREG §1. A chunk's first
+    appearance is the first time its hash is seen in trace order (§1.2)."""
+    per_call: list[list[tuple[str, str | None, int]]] = []
+    occurrence_count: dict[str, int] = {}
+    signatures: dict[str, SignatureChunk] = {}
+    elements: dict[str, dict[str, Any]] = {}
+    sig_occ: dict[tuple[str | None, bool], int] = {}
+
+    for k, call in enumerate(llm_calls):
+        model: str | None = call.get("model")
+        annotated: list[tuple[str, str | None, int]] = []
+        for chunk_text, role in _chunk_boundary(call.get("input_text") or ""):
+            chash = _sha256_hex(chunk_text)
+            if chash not in occurrence_count:
+                elem = _signature_element(chunk_text, role)
+                if elem is not None:
+                    elements[chash] = elem
+                    signatures[chash] = SignatureChunk(
+                        first_call=k, source_call=k - 1,
+                        thinking_estimate=_thinking_estimate(elem, llm_calls, k - 1))
+            occurrence_count[chash] = occurrence_count.get(chash, 0) + 1
+
+            sig = signatures.get(chash)
+            changed = (sig is not None and sig.thinking_estimate is not None
+                       and _keeps_thinking(model))
+            if sig is not None:
+                sig_occ[(model, changed)] = sig_occ.get((model, changed), 0) + 1
+            if changed:
+                assert sig is not None and sig.thinking_estimate is not None
+                toks = _signature_weighted_len(elements[chash], model, sig.thinking_estimate)
+            else:
+                toks = _chunk_token_len(chunk_text, model)
+            annotated.append((chunk_text, role, toks))
+        per_call.append(annotated)
+
+    return ChunkLengths(per_call, occurrence_count, signatures, sig_occ)
+
+
 def find_context_resend(trace: Trace, n: int = 2) -> ContextResendResult:
     """Detect and cost context resend events within a single trace (prereg §1).
 
@@ -544,15 +674,11 @@ def find_context_resend(trace: Trace, n: int = 2) -> ContextResendResult:
     )
 
     # Pre-compute per-call chunk annotations, denominators, and effective rates.
-    per_call: list[list[tuple[str, str | None, int]]] = []
     per_call_ladder: list[list[tuple[float, int]]] = []
-    occurrence_count: dict[str, int] = {}
     total_input_tokens = 0
     total_input_cost = 0.0
 
     for call in llm_calls:
-        input_text: str = call.get("input_text") or ""
-        model: str | None = call.get("model")
         input_tokens_val = call.get("input_tokens")
         input_tokens = int(input_tokens_val) if input_tokens_val is not None else 0
 
@@ -560,15 +686,11 @@ def find_context_resend(trace: Trace, n: int = 2) -> ContextResendResult:
 
         total_input_tokens += input_tokens
         total_input_cost += call_cost
-
-        chunks = _chunk_boundary(input_text)
-        annotated: list[tuple[str, str | None, int]] = []
-        for chunk_text, role in chunks:
-            chash = _sha256_hex(chunk_text)
-            annotated.append((chunk_text, role, _chunk_token_len(chunk_text, model)))
-            occurrence_count[chash] = occurrence_count.get(chash, 0) + 1
-        per_call.append(annotated)
         per_call_ladder.append(_ladder_for_call(call))
+
+    lengths = _chunk_lengths(llm_calls)
+    per_call = lengths.per_call
+    occurrence_count = lengths.occurrence_count
 
     result.total_llm_input_tokens = total_input_tokens
     result.total_llm_input_cost = total_input_cost
