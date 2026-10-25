@@ -230,3 +230,60 @@ reading them.
   exactly; no adapter reads it today and this change does not use it.
 - A source call other than `k − 1` (resumed sessions, compaction, interleaved
   sub-agent calls). G5 checks the link on Corpus A only.
+
+## 6. Results (2026-10-25)
+
+Code: `9437123` (feat/cc-signature-weight), implementing §1 in
+`_chunk_lengths` (`src/clew/detect/context_resend.py`). Harness: as-is arm =
+the same code with `_keeps_thinking` forced to `False`, so no occurrence
+changes and every length is the 0.5.23 length; weighted arm = the code as
+implemented. Both arms in one process, `PYTHONHASHSEED=0`. Scripts and raw
+outputs: `field_test/diagnostics/_signature_weight_results_2026_10_25/`
+(uncommitted).
+
+**Baseline (as-is arm).** Every value reproduces at the stated tolerance:
+census 848, `union_wr_char` 0.991595182355781, `union_sdr_at_10`
+0.9642857142857143, context_resend sum 304.69214540000644 and denominator
+343.2929203500001 exact; numerator 304.71579418567944 and `union_wr_cost`
+0.8876262110940424 within 1e-9.
+
+| | as-is | weighted |
+|---|---:|---:|
+| `union_wr_cost` | 0.8876262110940424 | **0.8849064543071518** |
+| numerator ($) | 304.71579418567944 | 303.78212093566606 |
+| context_resend alone ($) | 304.69214540000644 | 303.75847214999305 |
+| `union_wr_char` | 0.991595182355781 | 0.991595182355781 |
+| `union_sdr_at_10` | 0.9642857142857143 | 0.9642857142857143 |
+| census (calls over their bill) | 848 | **8** |
+
+**Guards.**
+
+| | result |
+|---|---|
+| G1 | `union_wr_char`, `union_sdr_at_10` bit-identical |
+| G2 | `total_input_cost` bit-identical in all 28 sessions |
+| G3 | 20 sessions with no signature chunk: `resent_cost` bit-identical 20/20, `union_waste_cost` within 1e-9 20/20 |
+| G4 | 783,990 unchanged occurrences checked one by one, 0 differ |
+| G5 | 685/685 source calls match the producing message's usage; 0 message ids whose lines disagree |
+| G6 | Corpus D: 1,017 files, 1,017 ingested, reports bit-identical 1,017/1,017, changed occurrences 0 |
+| G7 | Corpus B: 6,780 trajectories built (336 lines fail to build, skipped as in the public scan), changed occurrences 0, signature chunks 0. Corpus C: 10,056 rows ingested, 0 errors, changed occurrences 0, signature chunks 0 |
+
+**Predictions.**
+
+| | predicted | result | |
+|---|---|---|---|
+| P1 | census ≤ 50, floor 8 | 8; all 8 are `<synthetic>` with billed input 0 | **holds** |
+| P2 | `union_wr_cost` falls by < 0.03 | falls by 0.0027197568 | **holds** |
+| P3 | B and C unchanged (G7) | 0 changed occurrences on both | **holds** |
+
+**Stop conditions.** None fired: signature chunks without an estimate 0 of
+685; `thinking_est = 0` in 1 of 685 (0.15%, under 1%); census 8 (under 200).
+
+**Counts reported under §1.4.** Signature occurrences by call model:
+`claude-opus-4-8` changed 97,162; `claude-sonnet-4-6` changed 6,259;
+`<synthetic>` unchanged 300. Sessions with a signature chunk: 8 of 28.
+
+**What this does not show.** Per §5: `thinking_est` is an estimate whose
+direction against the bill is not measured; the census reaching its floor
+says the reconstructed input no longer exceeds the bill, not that each
+signature is weighted at its bill.
