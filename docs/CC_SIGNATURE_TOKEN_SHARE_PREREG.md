@@ -1,8 +1,8 @@
 # Thinking Signatures Weighted by the Thinking They Carry — Pre-registration
 
 **Status.** Drafted 2026-10-21 before any measurement of the effect; 세원님
-decided on 2026-10-24 to pursue it. Revised after two adversarial reviews
-(24 and 10 findings, 2026-10-24/25, before any code). From this PR on the text is frozen;
+decided on 2026-10-24 to pursue it. Revised after three adversarial reviews
+(24, 10 and 5 findings, 2026-10-24/25, before any code). From this PR on the text is frozen;
 anything changed later goes in a dated amendment.
 **Engine.** `main` at `3659761` (0.5.23, released). `src/` is unchanged since
 the draft was written at `655e9b1`; only the version number moved.
@@ -13,8 +13,10 @@ the draft was written at `655e9b1`; only the version number moved.
   (`field_test/diagnostics/_overflow_cause_2026_10_17/census.py`): with images
   weighted as in 0.5.23, **848** calls measure more input than they were
   billed (`CC_IMAGE_TOKEN_SHARE_PREREG.md` §6). Removing signatures as well
-  leaves the 8 `<synthetic>` entries. The 839 in README "Still open" is the
-  other arm (images and signatures both counted by length, 2026-10-17).
+  leaves the 8 `<synthetic>` entries. The 839 in README "Still open" is not
+  an arm total: of the 1,557 calls over their bill with images and
+  signatures both counted by length (2026-10-17), 839 were attributed to
+  signatures, 710 to images and 8 to `<synthetic>`.
 - Facts measured 2026-10-21 on Corpus A, no detector change
   (`field_test/diagnostics/_signature_size_facts_2026_10_21/`, uncommitted):
   - 690 assistant messages carry a thinking block; every `thinking` text is
@@ -48,7 +50,9 @@ the draft was written at `655e9b1`; only the version number moved.
   13 `gemini-3-pro-preview`, as a key beside tool-call arguments; 0 in Claude
   sessions (2026-10-24, scan of the raw `gen_ai.input.messages` /
   `gen_ai.output.messages` attributes, not of the adapter-built `input_text`;
-  G7 checks the latter). Corpus D: no Claude calls.
+  G7 checks the latter). Corpus D: no Claude calls (`"model"` strings in its
+  JSONL: `mimo-v2.5-pro` 4,690, `sonnet` 1; neither contains "claude", so
+  `_model_version` returns None; 2026-10-25).
 - Billing (Anthropic docs, read 2026-10-24,
   `build-with-claude/extended-thinking`, "Migrating to adaptive thinking"):
   *"Claude Opus 4.5 and models numbered 4.6 and higher keep prior turns'
@@ -86,7 +90,9 @@ its text, as the detector already does. `k` = the index in `llm_calls` of the
 first call whose chunks contain that hash; `p = k − 1`.
 
 **1.3 Estimate (once per chunk).** If `p < 0`, or `llm_calls[p]` has no
-integer `output_tokens`, the chunk has no estimate. Otherwise
+integer `output_tokens`, or it is 0, the chunk has no estimate. (The Claude
+Code adapter writes 0 when usage is missing, `ingest/claude_code.py:407`, so
+0 is how missing usage arrives.) Otherwise
 `thinking_est = max(0, output_tokens(p) − visible)`, where `visible` is the
 sum of the following terms over the chunk's `content` blocks, each term a
 separate call to `_text_token_len(·, model of call p)` (so each non-empty
@@ -112,7 +118,9 @@ signature chunks heavy at their first appearance (a `<synthetic>` call)
 while their later occurrences change; the implementation reports changed
 and unchanged signature occurrences split by call model.
 
-**1.5 New length.** Remove every `signature` key from thinking blocks, re-dump
+**1.5 New length.** Remove the `signature` key, whatever its value, from every
+`type == "thinking"` block directly in the chunk's `content` list (nothing
+deeper), re-dump
 with `sort_keys=True, ensure_ascii=False`, take `_chunk_token_len` of that
 text with the occurrence's model (so images are still weighted as in 0.5.23),
 then add `thinking_est`.
@@ -149,7 +157,9 @@ Guards that test the change:
   does not change equals its as-is length, checked one occurrence at a time.
 - **G5.** For each signature chunk, the `p` the implementation chose has
   `output_tokens` equal to the producing message's usage in the raw JSONL
-  (685/685). The harness reads `p` from the implementation's own function,
+  (685/685), where that usage is the maximum `output_tokens` over the
+  message's JSONL lines (the rule `link_check.py` used; the adapter keeps the
+  first line's). The number of message ids whose lines disagree is reported. The harness reads `p` from the implementation's own function,
   then reads the JSONL; it does not recompute `p`.
 - **G6.** Corpus D: report bit-identical (no Claude calls).
 - **G7.** Corpus B and C: the implementation's count of changed signature
@@ -159,8 +169,9 @@ Predictions (judgements):
 - **P1.** Census with the implementation's lengths (the values
   `find_context_resend` uses as share weights, read from the implementation,
   not re-implemented): **at most 50** calls over their bill (from 848). Floor
-  is 8 (`<synthetic>`), since the new length is never below the stripped
-  one. Every call above 8 is reported with its overshoot. Whether an
+  is expected at 8 (`<synthetic>`): the census's own removal (every
+  `signature` key at any depth, `census.py` `strip`) leaves 8, §1.5 removes
+  a subset of those keys and §1.3 adds a non-negative term. Every call above 8 is reported with its overshoot. Whether an
   overshoot means `thinking_est` is too high depends on how cl100k compares
   with Anthropic's tokenizer on the visible text, which is not measured
   (§5).
@@ -168,7 +179,7 @@ Predictions (judgements):
   0.8876262110940424. The direction is a judgement: share is computed per
   call over `share_total`, so a call moves toward less resent weight only
   when signature chunks are a larger part of its resent weight than of its
-  first-appearance weight. The second review found the opposite in 568 of
+  unflagged weight (first appearances plus exempt `system` repeats). The second review found the opposite in 568 of
   4,326 calls with `k > 0`; the judgement is that the rest outweigh them.
   Dollar weighting (`_price_against_ladder`, cheapest rung first) and the
   per-call budget clamp are not part of the argument.
