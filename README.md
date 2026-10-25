@@ -40,7 +40,7 @@ boxdawn analyze <trace>.jsonl --out report.md
 
 **No instrumentation. No SDK. No code changes.** Boxdawn reads trace files your agent already writes.
 
-Ran on 6,780 public benchmark trajectories. One Toolathlon Canvas session (`grok-4_2`, task `canvas-art-manager`) shows the shape of what falls out:
+Ran on 6,780 public benchmark trajectories. One Toolathlon Canvas session (`grok-4_2`, task `canvas-art-manager`) shows the shape of what falls out (the report's Result section and the first 2 of its 27 pairs; the full report goes on to the other pairs and a Context resend section):
 
 ```
 ## Result
@@ -73,15 +73,15 @@ The waste detector above requires both responses to be byte-identical. That is t
 - Both calls returned entity IDs, and they differ: 7 / 32.
 ```
 
-All 13 differing-ID pairs in this trace are the same tool, `canvas-canvas_upload_file_from_path`. The agent uploaded the same file 13 times, and each call created a distinct Canvas entity. The waste detector correctly did not flag them (the responses were not byte-identical, because each returned a different ID). The `Duplicate creation check` section catches exactly this reverse case.
+All 27 pairs in this trace are the same tool, `canvas-canvas_upload_file_from_path`: the agent uploaded each of 27 files twice to the same course (54 calls). In the 13 pairs with differing entity IDs, each call created a distinct Canvas entity. The tool-cascade detector correctly did not flag them (the responses were not byte-identical, because each returned a different ID). The `Duplicate creation check` section catches exactly this reverse case. The 88.6% on the Context resend and Waste rate lines is conversation history the agent re-sent on each call (see [Why the waste axis](#why-the-waste-axis)): what the run paid to carry it, not what it could have saved.
 
 Reproduce:
 
 ```bash
 pip install boxdawn
 # Toolathlon corpus (CC-BY-4.0): huggingface.co/datasets/hkust-nlp/Toolathlon-Trajectories
-# grok-4_2.jsonl holds 106 trajectories and `analyze` reads the first, so take this one out
-python -c "import json,sys; sys.stdout.writelines(l for l in open('grok-4_2.jsonl', encoding='utf-8') if json.loads(l).get('task_name') == 'canvas-art-manager')" > canvas-art-manager.jsonl
+# grok-4_2.jsonl holds one trajectory per task and `analyze` reads the first, so take this one out
+python -c "import json; open('canvas-art-manager.jsonl', 'w', encoding='utf-8', newline='').writelines(l for l in open('grok-4_2.jsonl', encoding='utf-8', newline='') if json.loads(l).get('task_name') == 'canvas-art-manager')"
 boxdawn analyze canvas-art-manager.jsonl --out report.md
 ```
 
@@ -114,7 +114,7 @@ A two-stage cascade, fully deterministic. Every parameter is pinned to a git tag
 
 **Why sha256 for tools.** We cannot see inside a tool. We do not know whether `Bash: ls` had side effects, or whether `send_email` actually reached anyone. So we judge by result. Same input, same byte output, no state change in the interval: the second call was redundant. If outputs differ (a retry succeeded where one failed, an in-memory counter advanced), the pair is **not** flagged.
 
-**Reverse case: duplicate creation.** If two `notion-API-post-page` calls really did create two pages, the responses carry different entity IDs, so byte-identity fails and the waste detector correctly excludes them. The `Duplicate creation check` section scans that excluded pool separately, using per-tool entity-ID extraction (26 tools currently mapped, see [`docs/ID_BRIDGE_PRODUCTION_PREREG.md`](https://github.com/boxdawn/boxdawn/blob/main/docs/ID_BRIDGE_PRODUCTION_PREREG.md) §1.1). This is what surfaced the 13 Canvas uploads above.
+**Reverse case: duplicate creation.** If two `notion-API-post-page` calls really did create two pages, the responses carry different entity IDs, so byte-identity fails and the waste detector correctly excludes them. The `Duplicate creation check` section scans that excluded pool separately, using per-tool entity-ID extraction (26 tools currently mapped, see [`docs/ID_BRIDGE_PRODUCTION_PREREG.md`](https://github.com/boxdawn/boxdawn/blob/main/docs/ID_BRIDGE_PRODUCTION_PREREG.md) §1.1). This is what surfaced the 13 differing-ID Canvas upload pairs above.
 
 **Frozen parameters** (never hand-tuned): `φ = 0.514345`, `N = 2`. `N = 2` began as an arbitrary default; a later grid on `N ∈ {2, 3, 5, ∞}` on RedundancyBench found F1 decreases monotonically as `N` grows. F1-optimal, not tuned.
 
@@ -221,7 +221,7 @@ Public dataset ([HF: trace-commons/agent-traces](https://huggingface.co/datasets
 
 ### Toolathlon (6,780 trajectories, cross-model scale)
 
-Boxdawn ran unmodified over Toolathlon (22 frontier models × 3 runs, [arXiv:2510.25726](https://arxiv.org/abs/2510.25726), CC-BY-4.0). 176,270 tool spans, 8,042 duplicate pairs. Excluding the `idempotent` grey area leaves **4,249 pairs (2.41% of tool spans)**, roughly **3× the rate seen on Claude Code sessions (0.80%)**. The Canvas hero above is one of these. Both rates count byte-identical repeats, and the two corpora repeat for opposite reasons: on a hand-coded sample of 100 of the 4,249, **75** were avoidable at call time, mostly agents looping on the same failing call; on Claude Code it was **9 of 34**, mostly edit-then-recheck ([`ACCEPTED_PAIR_PRECISION_RESULTS`](https://github.com/boxdawn/boxdawn/blob/main/docs/ACCEPTED_PAIR_PRECISION_RESULTS.md)).
+Boxdawn ran unmodified over Toolathlon (22 frontier models × 3 runs, [arXiv:2510.25726](https://arxiv.org/abs/2510.25726), CC-BY-4.0). 176,270 tool spans, 8,042 duplicate pairs. Excluding the `idempotent` grey area leaves **4,249 pairs (2.41% of tool spans)**, roughly **3× the rate seen on Claude Code sessions (0.80%)**. Both rates count byte-identical repeats, and the two corpora repeat for opposite reasons: on a hand-coded sample of 100 of the 4,249, **75** were avoidable at call time, mostly agents looping on the same failing call; on Claude Code it was **9 of 34**, mostly edit-then-recheck ([`ACCEPTED_PAIR_PRECISION_RESULTS`](https://github.com/boxdawn/boxdawn/blob/main/docs/ACCEPTED_PAIR_PRECISION_RESULTS.md)).
 
 Duplicate creation check across the same corpus: **3,432 same-input side-effect pairs** scanned, **159 (4.63%) with differing entity IDs**, **76 (2.21%) with the same ID**, **3,197 (93.15%) without an extractable entity ID** (audit blind spot, not a verdict).
 
