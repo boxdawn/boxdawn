@@ -73,7 +73,7 @@ The waste detector above requires both responses to be byte-identical. That is t
 - Both calls returned entity IDs, and they differ: 7 / 32.
 ```
 
-All 27 pairs in this trace are the same tool, `canvas-canvas_upload_file_from_path`: the agent uploaded each of 27 files twice to the same course (54 calls). In the 13 pairs with differing entity IDs, each call created a distinct Canvas entity. The tool-cascade detector correctly did not flag them (the responses were not byte-identical, because each returned a different ID). The `Duplicate creation check` section catches exactly this reverse case. The 88.6% on the Context resend and Waste rate lines is conversation history the agent re-sent on each call (see [Why the waste axis](#why-the-waste-axis)): what the run paid to carry it, not what it could have saved.
+All 27 pairs in this trace are the same tool, `canvas-canvas_upload_file_from_path`: the agent uploaded 27 files, each to its own course, and then uploaded each one again (54 calls). In 14 pairs the first call had returned a tool timeout, so the second was a retry; these are the 14 without an extractable entity ID. In the other 13 both calls returned, with differing entity IDs: each call created a distinct Canvas entity. The tool-cascade detector correctly did not flag them (the responses were not byte-identical, because each returned a different ID). The `Duplicate creation check` section catches exactly this reverse case. The 88.6% on the Context resend and Waste rate lines is conversation history the agent re-sent on each model call (see [Why the waste axis](#why-the-waste-axis)): what the run paid to carry it, not what it could have saved.
 
 Reproduce:
 
