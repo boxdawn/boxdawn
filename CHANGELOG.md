@@ -2,7 +2,7 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
-## 0.5.24 — 2026-10-26 · **서명은 실어 나르는 thinking 만큼, 캐시는 틀린 값을 주지 않게**
+## 0.5.24 — 2026-10-26 · **서명은 추정한 thinking 으로 재고, 캐시는 틀린 값을 주지 않게**
 
 두 가지가 같이 나간다. 하나는 공개 수치를 움직이고, 하나는 출하된 자동수정 기능의 결함 넷을
 고친다(공개 수치 영향 0).
@@ -10,8 +10,9 @@ All notable, user-visible changes to `boxdawn` (previously published on PyPI as 
 ### 바뀐 것
 
 - `#319` 탐지: thinking 서명의 무게. 서명은 Claude Code 가 보관했다가 뒤 호출에 다시 보내는
-  base64 다. 지금까지 그 글자 길이로 쟀고, Corpus A 에서 실제로 실어 나르는 thinking 보다 중앙
-  2.35배 무거웠다. 이제 이전 thinking 을 유지하는 Claude 호출에서는, 서명이 처음 나온 직전
+  base64 다. 지금까지 그 글자 길이로 쟀다. Anthropic 문서상 보관된 서명은 그 thinking 으로
+  청구된다(문서 읽기, 실측 아님). Corpus A 에서 길이로 재면 추정 thinking 의 중앙 2.35배였다
+  (2026-10-21 프로브). 이제 이전 thinking 을 유지하는 Claude 호출에서는, 서명이 처음 나온 직전
   호출의 `output_tokens` 에서 보이는 text·tool_use 를 뺀 **추정** thinking 으로 무게를 단다.
   추정이고, 청구보다 높은지 낮은지는 재지 않았다. 사전등록 `docs/CC_SIGNATURE_TOKEN_SHARE_PREREG.md`
   (`#318`), 결과 §6.
@@ -25,12 +26,12 @@ All notable, user-visible changes to `boxdawn` (previously published on PyPI as 
   고친 뒤: 키 = 도구 + 대상 + 입력 전체, 내용만 저장하고 억제된 호출이 자기 `id` 로 감싼다,
   경로 키 없는 쓰기는 전체 무효화. **캐시 대상을 경로 읽기 4종으로 좁혔다**(`Read` ·
   `filesystem-read_file` · `filesystem-get_file_info` · `github-get_file_contents`, 입력에 경로
-  키가 있을 때만) — 키만 고친 상태로 Corpus B 를 재생하면 억제 6,242 중 2,859(46%)가 그때 도구가
+  키가 있을 때만). 키만 고친 상태로 Corpus B 를 재생하면 억제 6,242 중 2,859(46%)가 그때 도구가
   낸 것과 다른 내용이었다. 이 목록은 B 를 본 뒤 골랐다. 탐지기·`_IDEMPOTENT_TOOLS` 는 그대로다.
   기록 재생(직접 호출 가정) 억제 / 그중 다른 내용: A 196/187 → 4/0 · D 186/167 → 11/4 (4 는
   Claude Code 자체의 "file unchanged" 안내) · B 8,492/4,120 → 533/24.
-- 리포트 각주 문구: "Cost is estimated saving potential" → 그 비용이 **절감 가능액이 아니라**
-  그 토큰의 값이라고 적는다(마크다운 각주 · JSON `note`). 수치는 안 바뀐다.
+- 리포트 각주 문구: "Cost is estimated saving potential" → 그 가정 아래 토큰에 매긴 값이고
+  **에이전트를 바꿔 아낄 수 있는 돈이 아니라고** 적는다(마크다운 각주 · JSON `note`). 수치는 안 바뀐다.
 
 ### 리포트가 바뀌는 범위 — 실측
 
@@ -57,14 +58,14 @@ All notable, user-visible changes to `boxdawn` (previously published on PyPI as 
 | `union_wr_char` · `union_sdr_at_10` | 0.9916 · 0.9643 | 비트 동일 |
 | 단일 탐지기 부트스트랩 CI (28) | [0.8214, 0.9111] | **[0.8196, 0.9077]** |
 | 토큰 기준 재전송 / 입력 | 0.9854 | **0.9857** |
-| 홈 인용 트레이스 재전송 토큰 비율 | 1,415,467 / 1,596,520 = 0.8866 (**88.7%**) | 1,413,682 / 1,596,520 = 0.8855 (**88.5%**) |
+| 홈 인용 트레이스 재전송 **토큰** 비율 (홈 숫자, 단일 트레이스) | 1,415,467 / 1,596,520 = 0.8866 (**88.7%**) | 1,413,682 / 1,596,520 = 0.8855 (**88.5%**) |
 | 홈 인용 트레이스 재전송 비용 비율 | 0.5649 | 0.5664 |
 
 - 사전등록 예측 P1(초과 호출 ≤ 50)·P2(하락 < 0.03)·P3(B·C 불변) 모두 맞았다.
 - 청구보다 많이 재지는 호출 848 → 8, 남은 8 은 usage 없는 `<synthetic>`.
 - 서명이 있는 세션 8 개가 움직인다(5 하락, 3 상승). $0.93 하락 중 $0.47 이 분모의 34.5% 인
   세션 `da5d32d6` 에서 온다.
-- Corpus B·C 는 서명 청크 0, D 는 Claude 호출이 없다 — 움직이지 않는다.
+- Corpus B·C 는 서명 청크 0(바뀐 청크 0), D 는 Claude 호출이 없다. 그래서 다시 돌리지 않았다.
 - 인용 트레이스는 토큰 비율이 내려가고 비용 비율이 올라간다. 왜 반대로 움직이는지는 재지 않았다.
 
 ## 0.5.23 — 2026-10-21 · **스크린샷은 청구된 만큼만 무게를 갖는다**

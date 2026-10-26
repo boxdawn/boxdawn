@@ -12,7 +12,7 @@
 
 </div>
 
-Boxdawn watches what your agents do and shows **where the input bill goes** — the context resent every turn, the file read again, the tool call that returned an answer you already had. Most resent context is the replay a stateless API requires, so a resend figure is what that part of the bill cost, not what changing the agent would save. Four deterministic detectors plus an opt-in semantic check, run against the trace files your agents already write. **Monitor, detect, alert, then fix** — the detection layer runs today. Measured across 17,881 traces in four public corpora.
+Boxdawn watches what your agents do and shows **where the input bill goes** — the context resent every turn, the file read again, the tool call that returned an answer you already had. In the Claude Code sessions we decomposed, every resent token was already in the previous call's input ([decomposition](https://github.com/boxdawn/boxdawn/blob/main/docs/CONTEXT_RESEND_DECOMPOSITION_RESULTS.md)): a resend figure prices that replay, it is not what changing the agent would save. Four deterministic detectors plus an opt-in semantic check, run against the trace files your agents already write. **Monitor, detect, alert, then fix** — the detection layer runs today. Measured across 17,881 traces in four public corpora.
 
 **Try it on one trace** — no install, no account: **[boxdawn.com/analyze](https://boxdawn.com/analyze)**
 
@@ -346,7 +346,7 @@ Pre-registration and results: [`docs/CORPUS_A_OPUS48_PRICING_PREREG.md`](https:/
 - `union_wr_char` 0.9916 and `union_sdr_at_10` 0.9643 are bit-identical, and so are the 21 sessions without screenshots.
 - Corpus B, C and D do not move: none of their Claude calls carries an image block (B 27,365 Claude calls, C 55,789, D none).
 - The cited trace behind the home page's 88.7% has no screenshot. Its report is identical on 0.5.23 apart from the time it was generated.
-- Thinking-block signatures are still counted by length. What they are billed (the original thinking tokens) is not in a Claude Code transcript. (Until 0.5.24, which estimates it: see the [2026-10-26 correction](#correction-2026-10-26--corpus-a-wr_cost-was-08876).)
+- Thinking-block signatures are still counted by length. What they are billed (the original thinking tokens) is not in a Claude Code transcript. From 0.5.24 the detector estimates it: see the [2026-10-26 correction](#correction-2026-10-26--corpus-a-wr_cost-was-08876).
 - Also corrected here: the bootstrap interval under the `Context Resend Detector` heading had not been recomputed when the 2026-10-19 correction moved its point estimate from 23 sessions to 28. It still showed the 23-session interval [0.8102, 0.8730], which does not contain 0.8985. Over the 28 sessions it was [0.8211, 0.9293] on 0.5.22 and is [0.8214, 0.9111] on 0.5.23. The by-tokens ratio moves from 0.9851 to 0.9854.
 
 Pre-registration and results, including the prediction this missed (we expected a move under 0.005): [`docs/CC_IMAGE_TOKEN_SHARE_PREREG.md`](https://github.com/boxdawn/boxdawn/blob/main/docs/CC_IMAGE_TOKEN_SHARE_PREREG.md).
@@ -355,7 +355,7 @@ Pre-registration and results, including the prediction this missed (we expected 
 
 <a id="correction-2026-10-26--corpus-a-wr_cost-was-08876"></a>
 
-**Correction, 2026-10-26: Corpus A `union_wr_cost` was published as 0.8876 and is 0.8849.** A thinking block carries a signature: base64 that Claude Code keeps and sends back on later calls. The resend detector measured it by the length of that text. What a kept signature is billed is the thinking it stands for, and on Corpus A the length overstated it by a median 2.35×. From 0.5.24, in a Claude call that keeps earlier thinking, a signature weighs the thinking estimated from the call that produced it: that call's output tokens minus the visible text and tool calls, counted with cl100k. It is an estimate, and whether it errs high or low is not measured. Each call's bill is unchanged, so the denominator does not move.
+**Correction, 2026-10-26: Corpus A `union_wr_cost` was published as 0.8876 and is 0.8849.** A thinking block carries a signature: base64 that Claude Code keeps and sends back on later calls. The resend detector measured it by the length of that text. Anthropic's documentation says a kept signature is billed as the thinking it stands for (read from the docs, not measured here). Counted by length, a Corpus A signature weighed a median 2.35× an estimate of that thinking (a probe, 2026-10-21). From 0.5.24, in a Claude call that keeps earlier thinking, a signature weighs the thinking estimated from the call that produced it: that call's output tokens minus the visible text and tool calls, counted with cl100k. It is an estimate, and whether it errs high or low is not measured. Each call's bill is unchanged, so the denominator does not move.
 
 | | `union_wr_cost` | `resent_cost / total_input_cost` | per-session `wr_cost` p10 / median / p90 |
 |---|---:|---:|---|
@@ -364,9 +364,9 @@ Pre-registration and results, including the prediction this missed (we expected 
 
 - 8 of the 28 sessions carry signatures. 5 fall and 3 rise; the largest move is 0.7815 → 0.7697. $0.47 of the $0.93 fall is the session that is 34.5% of the denominator.
 - Calls whose reconstructed input measures more than their bill: 848 → 8, the 8 `<synthetic>` entries with no usage.
-- `union_wr_char` 0.9916 and `union_sdr_at_10` 0.9643 are bit-identical. In the 20 sessions without signatures `resent_cost` is bit-identical and `union_waste_cost` agrees within 1e-9. Corpus B and C have no signature chunk in a Claude call; Corpus D has no Claude call. None of them moves.
+- `union_wr_char` 0.9916 and `union_sdr_at_10` 0.9643 are bit-identical. In the 20 sessions without signatures `resent_cost` is bit-identical and `union_waste_cost` agrees within 1e-9. Corpus B and C have no signature chunk (0 changed occurrences) and Corpus D has no Claude call, so their figures were not re-run.
 - The single-detector interval is [0.8196, 0.9077] (was [0.8214, 0.9111]) and the by-tokens ratio 0.9857 (was 0.9854).
-- 🔴 **The cited trace behind the home page's 88.7% moves to 88.5%.** It carries signatures. Its resent tokens go from 1,415,467 to 1,413,682 of 1,596,520 (0.8866 → 0.8855). Its cost ratio rises, 0.5649 → 0.5664; why the two move in opposite directions was not measured.
+- 🔴 **The cited trace behind the home page's 88.7% gives 88.5% on 0.5.24.** That figure is a token ratio on one trace, not the 28-session dollar ratio above. The trace carries signatures. Its resent tokens go from 1,415,467 to 1,413,682 of 1,596,520 (0.8866 → 0.8855). Its cost ratio rises, 0.5649 → 0.5664; why the two move in opposite directions was not measured.
 
 Pre-registration and results, all three predictions held: [`docs/CC_SIGNATURE_TOKEN_SHARE_PREREG.md`](https://github.com/boxdawn/boxdawn/blob/main/docs/CC_SIGNATURE_TOKEN_SHARE_PREREG.md).
 
