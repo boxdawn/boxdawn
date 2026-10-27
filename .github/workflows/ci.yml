@@ -66,10 +66,9 @@ jobs:
   tests-adapter:
     name: Test suite ([adapter] extra)
     # The two jobs above install `.[dev]` only, which leaves out langchain-core,
-    # langgraph and opentelemetry. Five test files skip at import without them,
-    # among them the whole of `tests/autofix/` -- so `clew.autofix`, which ships
-    # in the wheel, has had no line run in CI, and the adapter floor in
-    # `test_suite_floor.py` has never been checked here. The `.[dev]` jobs stay
+    # langgraph and opentelemetry. Test files that skip at import without them
+    # never ran in CI, and the adapter floor in `test_suite_floor.py` has never
+    # been checked here. The `.[dev]` jobs stay
     # as they are: they show the suite holds without the extra.
     #
     # The seven tests deselected below embed text with the [semantic] model,
