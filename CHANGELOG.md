@@ -2,10 +2,9 @@
 
 All notable, user-visible changes to `boxdawn` (previously published on PyPI as `clew-custos`). This file tracks releases going forward — earlier versions are not back-filled because the criteria for what qualifies as user-visible were not established at the time.
 
-## 0.5.24 — 2026-10-26 · **서명은 추정한 thinking 으로 재고, 캐시는 틀린 값을 주지 않게**
+## 0.5.24 — 2026-10-27 · **서명은 추정한 thinking 으로 잰다**
 
-두 가지가 같이 나간다. 하나는 공개 수치를 움직이고, 하나는 출하된 자동수정 기능의 결함 넷을
-고친다(공개 수치 영향 0).
+공개 수치가 움직인다. 그리고 자동수정 모듈이 이 패키지에서 빠진다.
 
 ### 바뀐 것
 
@@ -16,20 +15,8 @@ All notable, user-visible changes to `boxdawn` (previously published on PyPI as 
   호출의 `output_tokens` 에서 보이는 text·tool_use 를 뺀 **추정** thinking 으로 무게를 단다.
   추정이고, 청구보다 높은지 낮은지는 재지 않았다. 사전등록 `docs/CC_SIGNATURE_TOKEN_SHARE_PREREG.md`
   (`#318`), 결과 §6.
-- `#320` 자동수정: `clew.autofix.ToolCache` (0.5.13~0.5.23) 결함 넷.
-  1. 키가 도구+대상이라, 같은 경로를 다른 `offset` 으로 읽어도 앞 결과를 돌려줬다.
-  2. LangGraph `ToolNode` 경로에서 **한 번도 적중하지 않았다**(호출마다 다른 ToolCall `id` 가
-     키에 들어감). 설계가 1순위로 둔 런타임에서 이 기능은 아무 일도 안 했다.
-  3. 2 를 고치면 드러나는 것: 저장된 `ToolMessage` 의 `id` 로 뒤 호출에 답할 뻔했다.
-  4. 경로 키가 없는 쓰기(`filesystem-move_file`·`github-push_files`)가 캐시를 안 지웠다.
-
-  고친 뒤: 키 = 도구 + 대상 + 입력 전체, 내용만 저장하고 억제된 호출이 자기 `id` 로 감싼다,
-  경로 키 없는 쓰기는 전체 무효화. **캐시 대상을 경로 읽기 4종으로 좁혔다**(`Read` ·
-  `filesystem-read_file` · `filesystem-get_file_info` · `github-get_file_contents`, 입력에 경로
-  키가 있을 때만). 키만 고친 상태로 Corpus B 를 재생하면 억제 6,242 중 2,859(46%)가 그때 도구가
-  낸 것과 다른 내용이었다. 이 목록은 B 를 본 뒤 골랐다. 탐지기·`_IDEMPOTENT_TOOLS` 는 그대로다.
-  기록 재생(직접 호출 가정) 억제 / 그중 다른 내용: A 196/187 → 4/0 · D 186/167 → 11/4 (4 는
-  Claude Code 자체의 "file unchanged" 안내) · B 8,492/4,120 → 533/24.
+- **`clew.autofix` 를 뺐다.** 자동수정은 이 오픈소스 패키지 밖에서 관리한다. `from clew.autofix import
+  ToolCache` 는 이 버전부터 `ImportError` 다. 탐지기·리포트·공개 수치는 영향이 없다.
 - 리포트 각주 문구: "Cost is estimated saving potential" → 그 가정 아래 토큰에 매긴 값이고
   **에이전트를 바꿔 아낄 수 있는 돈이 아니라고** 적는다(마크다운 각주 · JSON `note`). 수치는 안 바뀐다.
 
