@@ -184,6 +184,51 @@ key = (tool.name, _extract_target(input_text))
 - `target` 이 `None`
 - 도구가 `_READ_TOOLS`(= `_IDEMPOTENT_TOOLS − _NON_READ_IDEMPOTENT`)에 없음
 
+> 🔴 **2026-10-26 정정 — P1.2 의 "디텍터의 키 그대로" 는 출하 후 틀린 값을 냈다. 위 본문은
+> 그대로 두고 여기서 바꾼다.** 0.5.13~0.5.23 의 `ToolCache` 에 결함 셋:
+>
+> 1. **키가 대상만 봤다.** 같은 경로를 다른 `offset` 으로 읽어도 앞 결과를 돌려줬다. 기록
+>    재생(직접 호출 가정, 2026-10-25): Corpus A 억제 196 중 187 · D 186 중 167 이 그때 도구가
+>    낸 것과 다른 내용.
+> 2. **LangGraph `ToolNode` 경로에서 한 번도 적중하지 않았다.** `ToolNode` 는 `tool.invoke` 에
+>    ToolCall dict(`name`·`args`·`id`·`type`)를 넘기고, 호출마다 다른 `id` 가 키에 들어갔다.
+>    `_extract_target` 은 `args` 안을 못 봤다. langgraph 1.2.4 에서 재현. 설계가 1순위로 둔
+>    런타임에서 이 기능은 아무 일도 안 했다.
+> 3. **(2 를 고치면 드러나는 것)** ToolCall 입력의 결과는 그 호출 `id` 에 묶인 `ToolMessage`
+>    다. 그것을 그대로 돌려주면 뒤 호출에 앞 호출의 `id` 로 답한다.
+> 4. **경로 키가 없는 쓰기는 아무것도 안 지웠다.** P1.3 은 "판정 불가 → 무효화" 인데,
+>    `_extract_target` 은 경로 키가 없으면 None 이 아니라 입력 해시를 돌려주고, 그 해시를 가진
+>    읽기 항목은 없다. `filesystem-move_file`(`source`/`destination`)·`github-push_files` 뒤에도
+>    옛 내용을 돌려줬다.
+>
+> 바뀐 것:
+> - 키 = `(도구, 디텍터의 target, 입력 전체)`. ToolCall 이면 `args` 를 꺼낸다. 무효화는 계속
+>   target 으로 한다(P1.3 그대로).
+> - 경로 키가 없는 쓰기 = 전체 무효화(P1.3 의 "판정 불가" 를 실제로 그렇게).
+> - 저장은 `ToolMessage` 가 아니라 내용·artifact. 억제된 호출의 `run()` 이 자기 `id` 로 감싼다.
+> - **캐시 대상을 디텍터 읽기 도구의 부분집합으로 좁혔다**: 한 경로의 내용을 읽고, 그 경로에
+>   대한 쓰기가 무효화 게이트로 지워지는 것만 — `Read` · `filesystem-read_file` ·
+>   `filesystem-get_file_info` · `github-get_file_contents`, 그리고 입력에 경로 키
+>   (`_FILE_KEYS`)가 있을 때만. 키를 입력 전체로 고친 뒤 Corpus B 를 재생하면 억제 6,242 중
+>   2,859(46%)가 다른 내용이었다(브라우저 스냅샷·커서 이동·k8s·디렉터리 목록·notion).
+>   검색·glob(한 항목이 여러 파일, 쓰기는 한 경로만 지운다)·`read_multiple_files`(경로 목록)·
+>   pdf 도구(`pdf_file_path` 는 쓰기 게이트가 읽는 키가 아니다)는 재생에서 맞았어도 뺐다.
+>   `github-get_file_contents` 의 `(owner, repo, sha)` 호출 1,393 은 내용 고정이지만 경로 키가
+>   없어 빠진다 — 안전 쪽으로 놓친 것. **이 목록은 B 를 본 뒤 골랐다.**
+> - **디텍터는 안 바뀐다.** `_IDEMPOTENT_TOOLS`·`_extract_target`·`redundant_read` 그대로,
+>   공개 수치 영향 0. 그래서 "고친 것 = 센 것" 은 더 이상 성립하지 않는다: 캐시가 막는 것은
+>   디텍터가 세는 것의 부분집합이다. 디텍터가 다른 `offset` 읽기를 반복으로 세는 것이 맞는지는
+>   별개 질문으로 열어 둔다.
+>
+> 같은 재생(직접 호출 가정, 고친 코드): 억제 / 그중 그때 도구가 낸 것과 다른 내용 —
+> A 4 / 0 · D 11 / 4 · B 533 / 24. D 의 4 는 모두 Claude Code 가 두 번째 `Read` 에 *"Wasted
+> call — file unchanged since your last Read"* 안내를 돌려준 경우로, 캐시는 그 자리에 실제 파일
+> 내용을 준다. B 의 24 는 `filesystem-read_file` 14 · `github-get_file_contents` 10 (원인 안 잼).
+> 항목 4 를 고치기 전에는 B 624 / 40 이었다.
+> 스크립트·결과 `field_test/diagnostics/_toolcache_replay_2026_10_25/fix_2026_10_26/`
+> (미커밋 · `fixed_*` = 키만 고친 단계, `final_*` = 최종). `ToolNode` 경로는 테스트
+> `test_under_toolnode_the_second_read_is_served_with_its_own_id` 가 실제로 돌린다.
+
 ## P1.3 무효화 = **디텍터의 interval gate 그대로** (결정 ②)
 
 `find_redundant_reads` 는 두 읽기 사이에 ① 같은 target 쓰기 ② shell 도구가 있으면 **세지 않는다.** 억제기는 같은 조건에서 **캐시를 버린다.**

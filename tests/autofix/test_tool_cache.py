@@ -1,8 +1,9 @@
 """tests/autofix/test_tool_cache.py — Stage 4 Phase 1 suppression + counting.
 
-Design: docs/STAGE4_AUTOFIX_DESIGN.md Phase 1. The cache key and the
-invalidation gates are the detector's, reused rather than copied, so what
-gets fixed and what gets counted are the same rule.
+Design: docs/STAGE4_AUTOFIX_DESIGN.md Phase 1. The invalidation gates and
+the target are the detector's, reused rather than copied. Since the
+2026-10-26 correction the cache serves a subset of what the detector counts:
+path reads only, keyed on the whole input.
 """
 from __future__ import annotations
 
@@ -187,6 +188,188 @@ def test_ainvoke_suppresses_too():
 
     assert runs["Read"] == 1
     assert cache.report().suppressed_tool_calls_count == 1
+
+
+# ── The key is the whole input, and the runtime's tool-call shape is read ────
+#
+# Found 2026-10-25: the key was tool + target, so a read of the same path with
+# a different offset was answered with the earlier result; and under LangGraph
+# the tool receives a ToolCall dict whose unique `id` made every key distinct,
+# so the cache never hit there at all.
+
+
+class _PagedArgs(BaseModel):
+    file_path: str = ""
+    offset: int = 0
+
+
+def _paged_read(runs: dict[str, int]) -> BaseTool:
+    class _Impl(BaseTool):
+        name: str = "Read"
+        description: str = "Read tool"
+        args_schema: type = _PagedArgs
+
+        def _run(self, file_path: str = "", offset: int = 0, **kw):
+            runs["Read"] = runs.get("Read", 0) + 1
+            return f"{file_path}@{offset}"
+
+    return _Impl()
+
+
+def _call(args: dict, call_id: str) -> dict:
+    """The dict LangGraph's ToolNode hands to `tool.invoke`."""
+    return {"name": "Read", "args": args, "id": call_id, "type": "tool_call"}
+
+
+def test_a_different_argument_on_the_same_target_runs_the_tool():
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (read,) = cache.wrap([_paged_read(runs)])
+
+    first = read.invoke({"file_path": "/x/a.txt", "offset": 0})
+    second = read.invoke({"file_path": "/x/a.txt", "offset": 100})
+
+    assert runs["Read"] == 2
+    assert (first, second) == ("/x/a.txt@0", "/x/a.txt@100")
+    assert cache.report().suppressed_tool_calls_count == 0
+
+
+def test_tool_calls_with_different_ids_share_one_entry():
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (read,) = cache.wrap([_paged_read(runs)])
+
+    read.invoke(_call({"file_path": "/x/a.txt"}, "call_1"))
+    read.invoke(_call({"file_path": "/x/a.txt"}, "call_2"))
+
+    assert runs["Read"] == 1
+    assert cache.report().suppressed_tool_calls_count == 1
+
+
+def test_a_served_tool_call_answers_its_own_id():
+    """The stored result is a ToolMessage carrying the first call's id; handing
+    that back would answer call_2 with call_1's message."""
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (read,) = cache.wrap([_paged_read(runs)])
+
+    first = read.invoke(_call({"file_path": "/x/a.txt"}, "call_1"))
+    second = read.invoke(_call({"file_path": "/x/a.txt"}, "call_2"))
+
+    assert first.tool_call_id == "call_1"
+    assert second.tool_call_id == "call_2"
+    assert second.content == first.content
+
+
+def test_a_dict_input_and_a_tool_call_of_the_same_args_share_one_entry():
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (read,) = cache.wrap([_paged_read(runs)])
+
+    read.invoke(_call({"file_path": "/x/a.txt"}, "call_1"))
+    plain = read.invoke({"file_path": "/x/a.txt"})
+
+    assert runs["Read"] == 1
+    assert plain == "/x/a.txt@0"
+
+
+def test_a_write_still_invalidates_entries_keyed_on_the_whole_input():
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    read, write = cache.wrap([_paged_read(runs), _tool("Write", runs)])
+
+    read.invoke({"file_path": "/x/a.txt", "offset": 100})
+    write.invoke({"file_path": "/x/a.txt"})
+    read.invoke({"file_path": "/x/a.txt", "offset": 100})
+
+    assert runs["Read"] == 2
+    assert cache.report().cache_entries_dropped_count == 1
+
+
+@pytest.mark.parametrize("name", ["filesystem-list_directory", "Grep", "Glob"])
+def test_a_read_whose_answer_a_path_write_cannot_invalidate_runs_every_time(name):
+    """Detector read tools the cache does not serve: their result can change
+    without a write to the one path the gate would drop."""
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (tool,) = cache.wrap([_tool(name, runs)])
+
+    tool.invoke({"file_path": "/x"})
+    tool.invoke({"file_path": "/x"})
+
+    assert runs[name] == 2
+    assert cache.report().suppressed_tool_calls_count == 0
+    assert cache.report().not_cacheable_count == 2
+
+
+def test_a_write_without_a_path_key_drops_everything():
+    """`filesystem-move_file` names its files `source`/`destination`. The
+    target of such an input is a hash no read entry carries, so dropping by
+    target would drop nothing while the file under a cached path moved."""
+    class _MoveArgs(BaseModel):
+        source: str = ""
+        destination: str = ""
+
+    runs: dict[str, int] = {}
+
+    class _Move(BaseTool):
+        name: str = "filesystem-move_file"
+        description: str = "move"
+        args_schema: type = _MoveArgs
+
+        def _run(self, source: str = "", destination: str = "", **kw):
+            runs["move"] = runs.get("move", 0) + 1
+            return "moved"
+
+    cache = ToolCache()
+    read, move = cache.wrap([_tool("Read", runs), _Move()])
+
+    read.invoke({"file_path": "/x/a.txt"})
+    move.invoke({"source": "/x/b.txt", "destination": "/x/a.txt"})
+    read.invoke({"file_path": "/x/a.txt"})
+
+    assert runs["Read"] == 2
+    assert cache.report().suppressed_tool_calls_count == 0
+
+
+def test_a_read_without_a_path_key_is_not_cached():
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    (read,) = cache.wrap([_tool("Read", runs)])
+
+    read.invoke({"command": "/x/a.txt"})
+    read.invoke({"command": "/x/a.txt"})
+
+    assert runs["Read"] == 2
+
+
+def test_under_toolnode_the_second_read_is_served_with_its_own_id():
+    """The runtime path itself, not a reconstruction of what it passes."""
+    langgraph_prebuilt = pytest.importorskip(
+        "langgraph.prebuilt", reason="ToolNode is on the [adapter] extra"
+    )
+    from langchain_core.messages import AIMessage
+    from langgraph.graph import MessagesState, StateGraph
+
+    runs: dict[str, int] = {}
+    cache = ToolCache()
+    builder = StateGraph(MessagesState)
+    builder.add_node("tools", langgraph_prebuilt.ToolNode(cache.wrap([_paged_read(runs)])))
+    builder.set_entry_point("tools")
+    graph = builder.compile()
+
+    def step(call_id: str):
+        msg = AIMessage(content="", tool_calls=[{
+            "name": "Read", "args": {"file_path": "/x/a.txt"}, "id": call_id,
+        }])
+        return graph.invoke({"messages": [msg]})["messages"][-1]
+
+    first, second = step("call_1"), step("call_2")
+
+    assert runs["Read"] == 1
+    assert cache.report().suppressed_tool_calls_count == 1
+    assert (first.tool_call_id, second.tool_call_id) == ("call_1", "call_2")
+    assert second.content == first.content
 
 
 # ── P1.4: the suppressed call still leaves a span ───────────────────────────

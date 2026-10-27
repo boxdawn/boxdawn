@@ -57,6 +57,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 from pydantic import ConfigDict
 
@@ -68,8 +69,29 @@ except ImportError:  # pragma: no cover - langchain without openinference
 from clew.detect.redundant_read import (
     _SHELL_TOOLS,
     _extract_target,
+    _file_path_of,
     _load_tool_sets,
+    _parse_input,
 )
+
+# Reads this cache will serve: the content at one path, where a write to that
+# path is what the invalidation gate drops. A subset of the detector's read
+# tools, which stays as it is — the detector counts repeats, and a repeat can
+# be worth counting without being safe to answer from memory.
+#
+# Narrowed 2026-10-26. Replayed through the full-input key, Corpus B served
+# 2,859 of 6,242 hits (46%) with content other than what the tool returned
+# that time: browser snapshots, cursor navigation, cluster state, directory
+# listings, notion blocks. Left out as well, though they matched in replay:
+# searches and globs (one entry covers many files, a write drops one path),
+# `read_multiple_files` (a list of paths, no single target) and the pdf tools
+# (`pdf_file_path` is not a key the write gate reads).
+_CACHEABLE_READ_TOOLS: frozenset[str] = frozenset({
+    "Read",
+    "filesystem-read_file",
+    "filesystem-get_file_info",
+    "github-get_file_contents",
+})
 
 # Phase 1 default, flagged open in the design (P1.7). Entries are small
 # (a key and the tool's return value), and the cache lives for one
@@ -117,10 +139,27 @@ class ToolCacheReport:
         ])
 
 
+def _tool_args(tool_input: Any) -> Any:
+    """The arguments, whether the tool got them bare or inside a ToolCall.
+
+    LangGraph's ToolNode hands `tool.invoke` the whole ToolCall dict
+    (`name`, `args`, `id`, `type`). Its `id` is unique per call, so keying on
+    the dict as given made every call distinct and the cache never hit there
+    (found 2026-10-25, langgraph 1.2.4).
+    """
+    if (
+        isinstance(tool_input, dict)
+        and tool_input.get("type") == "tool_call"
+        and "args" in tool_input
+    ):
+        return tool_input["args"]
+    return tool_input
+
+
 def _serialize_input(tool_input: Any) -> str:
     """Match the adapter's tool-input serialization (`ingest/claude_code.py`).
 
-    The key has to be the detector's key, so the string handed to
+    The target has to be the detector's target, so the string handed to
     `_extract_target` has to be the string the detector would have seen.
     """
     if isinstance(tool_input, str):
@@ -129,6 +168,19 @@ def _serialize_input(tool_input: Any) -> str:
         return json.dumps(tool_input, sort_keys=True, ensure_ascii=False)
     except (TypeError, ValueError):
         return ""
+
+
+def _stored_value(result: Any) -> tuple[Any, Any]:
+    """What the tool produced, without the message it was wrapped in.
+
+    A ToolCall input comes back as a ToolMessage bound to that call's id.
+    Serving the message itself would answer a later call with the earlier
+    call's id, so the content and artifact are kept and the served call's own
+    `run()` wraps them for the id it was given.
+    """
+    if isinstance(result, ToolMessage):
+        return result.content, result.artifact
+    return result, None
 
 
 def _is_error_result(result: Any) -> bool:
@@ -159,7 +211,12 @@ class ToolCache:
     ) -> None:
         self._window = window
         self._max_entries = max_entries
-        self._entries: OrderedDict[tuple[str, str], Any] = OrderedDict()
+        # (tool, target, whole input). The target is the detector's and is
+        # what a write invalidates; the whole input is what makes two calls the
+        # same call — a read of one path at another offset is not a repeat
+        # (found 2026-10-25: keyed on the target alone, it was served the
+        # earlier page).
+        self._entries: OrderedDict[tuple[str, str, str], Any] = OrderedDict()
         self._report = ToolCacheReport(suppression_window=window)
 
     # ── public ──────────────────────────────────────────────────────────
@@ -175,15 +232,21 @@ class ToolCache:
 
     # ── internals used by the wrapper ───────────────────────────────────
 
-    def _key_for(self, tool_name: str, tool_input: Any) -> tuple[str, str] | None:
-        """The detector's key, or None when the detector would not count it."""
+    def _key_for(
+        self, tool_name: str, tool_input: Any,
+    ) -> tuple[str, str, str] | None:
+        """None unless this is a path read a write would invalidate;
+        otherwise the detector's target plus the whole input."""
         read_tools, _ = _load_tool_sets()
-        if tool_name not in read_tools:
+        if tool_name not in read_tools or tool_name not in _CACHEABLE_READ_TOOLS:
             return None
-        target = _extract_target(_serialize_input(tool_input))
+        serialized = _serialize_input(_tool_args(tool_input))
+        if _file_path_of(_parse_input(serialized)) is None:
+            return None
+        target = _extract_target(serialized)
         if target is None:
             return None
-        return (tool_name, target)
+        return (tool_name, target, serialized)
 
     def _before_call(self, tool_name: str, tool_input: Any) -> None:
         """Invalidation runs on the way in, before the tool can change state.
@@ -197,8 +260,12 @@ class ToolCache:
             self._invalidate_all()
             return
         if tool_name in write_tools:
-            target = _extract_target(_serialize_input(tool_input))
-            if target is None:
+            serialized = _serialize_input(_tool_args(tool_input))
+            target = _extract_target(serialized)
+            # No path key means the target is a hash of the input, which no
+            # read entry carries — dropping by it would drop nothing
+            # (`filesystem-move_file` names `source`/`destination`).
+            if target is None or _file_path_of(_parse_input(serialized)) is None:
                 # Cannot tell what was written — invalidate rather than guess.
                 self._invalidate_all()
                 return
@@ -213,7 +280,7 @@ class ToolCache:
         self._report.cache_entries_dropped_count += len(self._entries)
         self._entries.clear()
 
-    def _serve(self, key: tuple[str, str]) -> tuple[bool, Any]:
+    def _serve(self, key: tuple[str, str, str]) -> tuple[bool, Any]:
         if key in self._entries:
             self._report.suppressed_tool_calls_count += 1
             self._report.suppressed_targets.append(key[1])
@@ -221,10 +288,10 @@ class ToolCache:
         self._report.cache_miss_count += 1
         return False, None
 
-    def _store(self, key: tuple[str, str], result: Any) -> None:
+    def _store(self, key: tuple[str, str, str], result: Any) -> None:
         if _is_error_result(result):
             return
-        self._entries[key] = result
+        self._entries[key] = _stored_value(result)
         while len(self._entries) > self._max_entries:
             self._entries.popitem(last=False)
 
@@ -257,6 +324,7 @@ class _CachedTool(BaseTool):
             name=tool.name,
             description=tool.description,
             args_schema=tool.args_schema,
+            response_format=tool.response_format,
             inner=tool,
             cache=cache,
         )
@@ -274,13 +342,20 @@ class _CachedTool(BaseTool):
         that would mean `run()` was entered outside `invoke`, and answering a
         real call from here would bypass the cache silently.
         """
-        return _served_value()
+        return self._as_run_output(_served_value())
 
     async def _arun(self, *args: Any, **kwargs: Any) -> Any:
         """Async twin of `_run`. Overridden so the default does not bounce
         `_run` onto a worker thread, where the ContextVar lookup would be a
         different context."""
-        return _served_value()
+        return self._as_run_output(_served_value())
+
+    def _as_run_output(self, stored: tuple[Any, Any]) -> Any:
+        """Shape the stored value the way `run()` expects `_run` to return it."""
+        content, artifact = stored
+        if self.response_format == "content_and_artifact":
+            return content, artifact
+        return content
 
     def _suppressed_context(self) -> Any:
         """Tag the span `run()` is about to produce as a suppressed call.
