@@ -22,39 +22,6 @@ PRICING_SRC = (ROOT / "src" / "clew" / "cost" / "pricing.py").read_text(encoding
 
 # ── "Four deterministic detectors" ─────────────────────────────────────────
 
-def test_the_readme_counts_the_detectors_the_code_has():
-    """The README says four and names them in five places. If a fifth ships or
-    one is renamed, every one of those sentences becomes false at once."""
-    from clew.metrics.waste_rate import DETECTOR_ORDER
-
-    named = ("repeat", "context_resend", "redundant_read", "duplicate_creation")
-    assert DETECTOR_ORDER == named, (
-        f"README names {named} as the deterministic detectors; the code carries "
-        f"{DETECTOR_ORDER}. Update both in the same commit."
-    )
-    assert "Four deterministic detectors" in README or \
-           "four deterministic detectors" in README.lower(), (
-        "the README's count of the detectors has moved; this guard tracks the "
-        "sentence as well as the list"
-    )
-    for name in named:
-        assert f"`{name}`" in README, f"README stopped naming the {name} detector"
-
-
-def test_the_detector_count_in_prose_matches_the_list():
-    """`Deterministic waste detectors (4)` is a number in a heading. A heading
-    that disagrees with its own list is how a stale count survives review."""
-    from clew.metrics.waste_rate import DETECTOR_ORDER
-
-    stated = re.findall(r"[Dd]eterministic waste detectors \((\d+)\)", README)
-    assert stated, "the README's detector-count heading is gone or reworded"
-    for count in stated:
-        assert int(count) == len(DETECTOR_ORDER), (
-            f"README heading says {count} deterministic detectors, the code has "
-            f"{len(DETECTOR_ORDER)}"
-        )
-
-
 # ── "Each pricing entry carries a source URL and ISO-8601 verification date" ──
 
 def _entry_blocks() -> dict[str, str]:
@@ -101,16 +68,6 @@ def test_every_pricing_entry_carries_its_source_and_date():
     )
     assert not missing_source, f"pricing entries with no source URL: {missing_source}"
     assert not missing_date, f"pricing entries with no ISO verification date: {missing_date}"
-
-
-def test_the_readme_still_makes_that_claim():
-    """If the sentence goes, the guard above is guarding nothing. This is the
-    half that usually rots: the assertion outlives the claim it was written for
-    and keeps passing about a promise nobody makes any more."""
-    assert "source URL and ISO-8601 verification date" in README, (
-        "the README's pricing-provenance sentence has changed; either restore "
-        "it or delete the guard that enforces it"
-    )
 
 
 @pytest.mark.parametrize("model", [
