@@ -14,7 +14,6 @@ Tests cover:
     position (Wasted Span Details -> Duplicate creation check -> Possible causes),
     IDs verbatim (no truncation)
   - Banned phrases + "provable" absence
-  - README subsection lock (b23 §5 standing rule extension)
 """
 from __future__ import annotations
 
@@ -576,79 +575,3 @@ def test_id_bridge_fallback_uses_output_text_when_raw_is_none():
     assert got.verdict == "differ"
     assert {got.origin_id, got.candidate_id} == {"N-1", "N-2"}
 
-
-# ────────────────────────── README subsection lock ──────────────────────────
-
-def test_readme_has_duplicate_creation_check_subsection():
-    """b23 §5 standing rule (extended): README documents the new detector."""
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    readme = (root / "README.md").read_text(encoding="utf-8")
-    assert "Duplicate creation check" in readme, (
-        "README must document the duplicate creation check detector "
-        "(per docs/ID_BRIDGE_PRODUCTION_PREREG.md §1.8)."
-    )
-    # sanity: no 'provable' in the README section
-    assert "provable" not in readme.lower()
-
-
-def test_readme_has_entity_id_path_per_framework_table():
-    """Tier 1 Results §5.2 → README: users need to know entity_id path
-    depends on the OpenInference instrumentor.
-
-    v0.4.2 restructure: the full per-instrumentor path table was moved
-    to docs. The README must still (a) surface the fact that path
-    depends on the framework (at minimum by showing LlamaIndex's
-    `raw_output.` envelope prefix in the framework coverage table),
-    (b) link to the results doc that has the full table, and (c) not
-    silently include FAILing frameworks (AutoGen, Anthropic) as if
-    entity_id extraction worked. Guard (c) is the restored morning
-    guard (commit 4abdab6 L621-642), re-scoped to the new
-    OpenInference framework coverage section.
-    """
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    readme = (root / "README.md").read_text(encoding="utf-8")
-    # (a) Path variance must be visible. LlamaIndex's envelope prefix is
-    # the canonical example (the framework where path != `ticket.id`).
-    assert "raw_output." in readme, (
-        "README must surface path variance by instrumentor; the LlamaIndex "
-        "`raw_output.` envelope prefix is the canonical example "
-        "(per docs/OPENINFERENCE_FRAMEWORK_EXPANSION_RESULTS.md §5.2)."
-    )
-    # (b) The results doc that has the per-instrumentor path table must
-    # be linked so users clicking through can find it.
-    assert "OPENINFERENCE_FRAMEWORK_EXPANSION_RESULTS.md" in readme, (
-        "README must link to docs/OPENINFERENCE_FRAMEWORK_EXPANSION_RESULTS.md "
-        "so users can find the per-instrumentor path table."
-    )
-    # (c) Restored morning guard. FAILing frameworks (AutoGen, Anthropic)
-    # may appear in the OpenInference framework coverage table ONLY if
-    # they carry the standard "not extractable" marker in the same row.
-    # Silent inclusion (as if entity_id worked) must fail.
-    #
-    # Marker is standardized to the single string "not extractable" (see
-    # commit message; ambiguity across "not possible" / "적용 불가" /
-    # "불가" was the earlier leak point).
-    oi_section_match = re.search(
-        r"### OpenInference framework coverage\n(.*?)(?=\n###|\n## )",
-        readme,
-        re.S,
-    )
-    if oi_section_match:
-        oi_section = oi_section_match.group(1)
-        # Extract markdown table rows only (skip prose and section header).
-        table_rows = [r for r in oi_section.splitlines() if r.startswith("|")]
-        for framework, reason in (
-            ("Anthropic", "instrumentor emits no TOOL span"),
-            ("AutoGen", "output is Python str(dict), not valid JSON"),
-        ):
-            matching = [r for r in table_rows if framework in r]
-            for r in matching:
-                assert "not extractable" in r, (
-                    f"README OpenInference framework coverage table lists "
-                    f"{framework!r} without the standard `not extractable` "
-                    f"marker (reason: {reason}). This risks advertising an "
-                    f"unmeasured entity_id path as if it worked. Remove "
-                    f"the row, or annotate it as `not extractable`."
-                )

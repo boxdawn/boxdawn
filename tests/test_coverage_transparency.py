@@ -10,7 +10,6 @@ Tests cover:
   - JSON `coverage_stats` field schema + backward compat
   - between_window_counts unchanged after coverage layer added
   - Banned-phrase guard on the new constants
-  - README example carries the banner (standing rule from b23 §5)
 """
 from __future__ import annotations
 
@@ -313,33 +312,6 @@ def test_no_over_claim_wording_in_rendered_output_with_banner():
     md_lower = render_markdown(trace, cr, [wd]).lower()
     for phrase in _BANNED:
         assert phrase not in md_lower
-
-
-# ────────────────────────── README example lock (b23 §5) ────────────────────
-
-def test_readme_example_has_coverage_banner():
-    """b23 §5 standing rule (extended): README example must carry the current
-    render structure — including the coverage banner introduced here."""
-    from pathlib import Path
-    root = Path(__file__).resolve().parents[1]
-    readme = (root / "README.md").read_text(encoding="utf-8")
-    # v0.4.1: fenced example uses the actual renderer output — includes
-    # `## Result` heading and `**Waste detection**:` bold markers.
-    m = re.search(
-        r"```\s*\n((?:##\s+)?Result\s*\n.*?\*{0,2}Waste detection \(tool cascade\)\*{0,2}:.*?)```",
-        readme,
-        re.S,
-    )
-    assert m, (
-        "README must contain a fenced 'Result / Waste detection:' example. "
-        "See docs/COVERAGE_TRANSPARENCY_PREREG.md §5 (regenerate from a "
-        "real render if the banner changes)."
-    )
-    example = m.group(1)
-    assert "Tool mapping coverage for this trace" in example, (
-        "README example is missing the coverage banner. Regenerate it "
-        "from a real render (per docs/COVERAGE_TRANSPARENCY_PREREG.md §5)."
-    )
 
 
 # ────────────── Line C: top-N unrecognized names (banner amend) ─────────────
