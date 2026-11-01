@@ -1,45 +1,38 @@
-# Boxdawn
-
-**Open your AI agents' black box. Stop the next mistake before it runs.**
-
-Boxdawn is building the safety and security layer for AI agents: the point between what an agent decides and what it does, where a mistake can be caught, stopped, reported and fixed before it reaches your data, your systems or your bill.
-
-**Try it on one trace**, no account: **[boxdawn.com/analyze](https://boxdawn.com/analyze)**
-
----
-
-## The chain
-
-**monitor → detect → block → alert → fix → govern**
-
-Detection is the link that runs today, as a service on the traces you upload. The rest is being built.
-
-## Running today
-
-- **Hosted analyzer, no account.** Drop a trace file at [boxdawn.com/analyze](https://boxdawn.com/analyze) and get a report.
-- **Four deterministic detectors** over the trace files your agents already write.
-- **Cost from real usage fields**, with per-model rates pinned to their sources.
-- **Accounts and per-project history.** Project history keeps derived numbers, not the trace file.
-- **Daily waste rate by session date**, so a backfill of old traces lands on the days they ran.
-- **API keys for CI and scripts**, issued and revoked per project.
-
-## Building next
-
-- Blocking destructive actions before they run
-- Stopping agent errors before they spread to other agents
-- Block alerts (email, Slack)
-- Auto-fix
-- Policy and governance
-- Stopping runaway loops
-- Budget guard for Claude Code
-- Real-time monitoring
+<div align="center">
+  <img src="https://avatars.githubusercontent.com/u/317308737?s=200&v=4" width="96" alt="Boxdawn" />
+  <h1>Boxdawn</h1>
+  <p><strong>Stop AI agent mistakes before they run.</strong></p>
+  <p>
+    <a href="https://boxdawn.com">Website</a> ·
+    <a href="https://github.com/boxdawn/guard">Guard for Claude Code</a> ·
+    <a href="https://boxdawn.com/analyze">Analyze a trace</a> ·
+    <a href="https://boxdawn.com/privacy">Privacy</a>
+  </p>
+</div>
 
 ---
+
+Boxdawn is the safety layer for AI agents: the point between what an agent decides and what it does, where a destructive action is caught before it reaches your data, your systems or your bill.
+
+## Products
+
+| | |
+|---|---|
+| **[Boxdawn guard](https://github.com/boxdawn/guard)** | A Claude Code plugin that judges every Bash and PowerShell command before it runs and denies or holds for approval the destructive ones. Windows, macOS and Linux. |
+| **[Trace analyzer](https://boxdawn.com/analyze)** | Drop a trace file, no account, and get a report from four deterministic detectors with the cost of each, from the trace's real usage fields. |
+| **[Dashboard](https://boxdawn.com)** | A daily waste rate per project, keyed on the day your sessions ran, and API keys for CI and scripts, issued and revoked per project. |
+
+Install the guard:
+
+```
+claude plugin marketplace add boxdawn/guard
+claude plugin install boxdawn-guard@boxdawn
+```
 
 ## About this repository
 
-Released on PyPI through `0.5.23`. The source here stops at `0.5.24` (2026-10-27); development continues privately, and [boxdawn.com](https://boxdawn.com) is where the product runs.
+This repository holds the source of the trace analyzer up to `0.5.24` (2026-10-27), released on PyPI through `0.5.23`. The analyzer runs at [boxdawn.com/analyze](https://boxdawn.com/analyze).
 
 ## License
 
-MIT, for the contents of this repository. Built by **Boxdawn**.
+MIT, for the contents of this repository. Built by **[Boxdawn](https://boxdawn.com)**.
